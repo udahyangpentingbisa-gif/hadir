@@ -11,13 +11,15 @@ Aplikasi full-stack Next.js untuk absensi harian dan penggajian dengan siklus ma
 
 ## Menyiapkan Neon dan menjalankan lokal
 
-Project ini ditautkan ke branch Neon `production` dan mengaktifkan Postgres, Neon Auth, AI Gateway, serta Realtime. Untuk menautkan project lain, instal Neon CLI lalu jalankan `neon init` dan `neon deploy`. Konfigurasi layanan dan daftar origin Realtime ada di `neon.ts`; gunakan `neon deploy --update-existing` bila CLI meminta persetujuan untuk memperbarui pengaturan branch. CLI menyimpan connection string dan service variables di `.env.local`, yang tidak boleh di-commit.
+Project ini ditautkan ke branch Neon `production` dan mengaktifkan Postgres, Neon Auth, AI Gateway, serta Realtime. Isi `.env.local` dengan connection string dari Neon Console (**Connect**): gunakan pooled connection untuk `DATABASE_URL` dan direct connection untuk `DATABASE_URL_UNPOOLED`. Jangan membagikan atau commit connection string tersebut. Untuk menautkan project lain, instal Neon CLI lalu jalankan `neon init` dan `neon deploy`. Konfigurasi layanan dan daftar origin Realtime ada di `neon.ts`; gunakan `neon deploy --update-existing` bila CLI meminta persetujuan untuk memperbarui pengaturan branch. CLI juga dapat membuat `.env.local` dengan connection string dan service variables.
+
+Untuk Neon Auth, isi `NEON_AUTH_BASE_URL` dengan URL endpoint Auth dari Neon dan `NEON_AUTH_JWKS_URL` dengan URL yang sama ditambah `/.well-known/jwks.json`. Endpoint Auth tidak dapat digunakan sebagai connection string Postgres.
 
 Jika mengatur Realtime dari Console, buka **Postgres database → Realtime**, salin endpoint dan secret branch ke `NEON_REALTIME_URL` dan `NEON_REALTIME_SECRET`. Gunakan URL WebSocket berawalan `wss://` untuk SDK client; jangan membagikan secret atau menaruhnya di bundle browser.
 
 Aplikasi ini memakai Prisma; live query menggunakan `rawSql` dari `@neon/realtime/server`, jadi `drizzleAdapter()` tidak diperlukan.
 
-Pastikan `.env.local` juga memiliki `AUTH_SECRET` acak dengan panjang minimal 32 karakter; buat nilainya, misalnya, dengan `openssl rand -base64 32`. Jangan membagikan atau mencetak isi file environment.
+`.env.local` lokal sudah menyiapkan `AUTH_SECRET` acak. Jika membuat file sendiri, pastikan secret acak minimal 32 karakter (misalnya `openssl rand -base64 32`). Pastikan URL pooled/direct Postgres, endpoint Auth, dan nilai Realtime berasal dari branch Neon yang sama sebelum menjalankan seluruh fitur; jangan membagikan atau mencetak isi file environment.
 
 ```bash
 pnpm install
@@ -26,7 +28,7 @@ pnpm db:seed
 pnpm dev
 ```
 
-Script database memuat `.env.local` secara langsung. `DATABASE_URL` adalah URL pooled untuk query aplikasi; `DATABASE_URL_UNPOOLED` adalah URL direct yang digunakan Prisma Migrate. Untuk membuat migration saat mengubah schema, jalankan `pnpm db:migrate -- --name nama_migrasi`, lalu commit folder migration yang dihasilkan. Migration awal ada di `prisma/migrations`; seed membuat akun owner `admin` / `admin123` dan siklus kerja aktif untuk setiap karyawan secara idempoten. Ganti kredensial default sebelum aplikasi dipakai pengguna.
+Script database memuat `.env.local` secara langsung. `DATABASE_URL` adalah URL pooled untuk query aplikasi; `DATABASE_URL_UNPOOLED` adalah URL direct yang digunakan Prisma Migrate. Untuk membuat migration saat mengubah schema, jalankan `pnpm db:migrate -- --name nama_migrasi`, lalu commit folder migration yang dihasilkan. Migration awal ada di `prisma/migrations`; seed membuat akun owner `admin` jika belum ada, dengan password `ADMIN_INITIAL_PASSWORD` (default `admin123`), serta siklus kerja aktif untuk setiap karyawan secara idempoten. Seed tidak mereset password akun yang sudah ada. Setelah masuk, owner dapat mengubah password dari tombol **Ubah password** di header.
 
 Buka `http://localhost:3000/login`. Login aplikasi menggunakan sesi JWT HTTP-only yang sudah ada; Neon Auth tetap aktif dan endpoint JWKS-nya diperiksa, tetapi tidak menggantikan provider login aplikasi. Dashboard owner menggunakan Neon Realtime untuk pembaruan absensi langsung. Pemeriksaan AI Gateway hanya membaca katalog model dan tidak menjalankan inferensi berbayar; akun tanpa kredit dapat terhubung tetapi belum memiliki model aktif.
 

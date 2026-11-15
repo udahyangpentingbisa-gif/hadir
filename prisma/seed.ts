@@ -5,7 +5,8 @@ import { getActivePayPeriod } from "../src/lib/pay-periods";
 const prisma = new PrismaClient();
 
 async function main() {
-  const password = await hash("admin123", 12);
+  const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || "admin123";
+  const password = await hash(initialPassword, 12);
 
   await prisma.user.upsert({
     where: { username: "admin" },
@@ -26,7 +27,7 @@ async function main() {
     await prisma.$transaction((tx) => getActivePayPeriod(tx, employee.id));
   }
 
-  console.log("Seed selesai. Login awal: admin / admin123");
+  console.log("Seed selesai; akun owner dibuat hanya jika belum tersedia.");
 }
 
 main()
