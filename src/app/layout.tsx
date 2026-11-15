@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Hadir — Absensi & Penggajian",
-  description: "Sistem absensi dan penggajian karyawan periode 15 hari.",
+  description: "Sistem absensi dan penggajian dengan siklus 15 kehadiran per karyawan.",
 };
 
 export default function RootLayout({

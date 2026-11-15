@@ -24,31 +24,48 @@ enum LoanStatus {
   REPAID
 }
 
+enum AbsenceKind {
+  LEAVE
+  EXPLANATION
+}
+
+enum AbsenceStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
-  id           String       @id @default(cuid())
-  name         String
-  username     String       @unique
-  email        String?      @unique
-  password     String
-  role         Role         @default(EMPLOYEE)
-  createdAt    DateTime     @default(now()) @map("created_at")
-  attendances  Attendance[]
-  loans        Loan[]
+  id             String          @id @default(cuid())
+  name           String
+  username       String          @unique
+  email          String?         @unique
+  password       String
+  role           Role            @default(EMPLOYEE)
+  createdAt      DateTime        @default(now()) @map("created_at")
+  attendances    Attendance[]
+  loans          Loan[]
+  payPeriods     PayPeriod[]
+  absenceReports AbsenceReport[]
 
   @@map("users")
 }
 
 model PayPeriod {
-  id          String       @id @default(cuid())
-  periodName  String       @map("period_name")
-  startDate   DateTime     @db.Date @map("start_date")
-  endDate     DateTime     @db.Date @map("end_date")
-  isActive    Boolean      @default(false) @map("is_active")
-  createdAt   DateTime     @default(now()) @map("created_at")
-  attendances Attendance[]
-  loans       Loan[]
+  id             String          @id @default(cuid())
+  employeeId     String          @map("employee_id")
+  periodName     String          @map("period_name")
+  startDate      DateTime        @map("start_date") @db.Date
+  endDate        DateTime        @map("end_date") @db.Date
+  isActive       Boolean         @default(false) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  employee       User            @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  attendances    Attendance[]
+  loans          Loan[]
+  absenceReports AbsenceReport[]
 
   @@index([isActive])
+  @@index([employeeId, isActive])
   @@map("pay_periods")
 }
 
@@ -82,4 +99,22 @@ model Loan {
   @@index([userId, status])
   @@index([status, createdAt])
   @@map("loans")
+}
+
+model AbsenceReport {
+  id         String        @id @default(cuid())
+  userId     String        @map("user_id")
+  periodId   String        @map("period_id")
+  date       DateTime      @db.Date
+  kind       AbsenceKind
+  reason     String
+  status     AbsenceStatus @default(PENDING)
+  createdAt  DateTime      @default(now()) @map("created_at")
+  reviewedAt DateTime?     @map("reviewed_at")
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period     PayPeriod     @relation(fields: [periodId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, date])
+  @@index([periodId, status])
+  @@map("absence_reports")
 }

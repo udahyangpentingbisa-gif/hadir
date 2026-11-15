@@ -12,7 +12,15 @@ export default async function OwnerPage() {
   let data:
     | {
         employees: EmployeeRow[];
-        period: { id: string; periodName: string; startDate: string; endDate: string } | null;
+        activeCycleCount: number;
+        absenceReports: {
+          id: string;
+          date: string;
+          kind: "LEAVE" | "EXPLANATION";
+          reason: string;
+          employeeName: string;
+          username: string;
+        }[];
         presentToday: number;
         totalWage: number;
       }
@@ -21,26 +29,43 @@ export default async function OwnerPage() {
 
   try {
     const today = dateFromKey(jakartaDateKey());
-    const [users, period, presentToday] = await Promise.all([
+    const [users, presentToday] = await Promise.all([
       prisma.user.findMany({
         where: { role: "EMPLOYEE" },
         orderBy: { name: "asc" },
         select: { id: true, name: true, username: true, email: true },
       }),
-      prisma.payPeriod.findFirst({ where: { isActive: true }, orderBy: { startDate: "desc" } }),
       prisma.attendance.findMany({
         where: { date: today, user: { role: "EMPLOYEE" } },
         select: { userId: true },
       }),
     ]);
-    const aggregate = period
+    const periods = users.length
+      ? await prisma.payPeriod.findMany({
+          where: { employeeId: { in: users.map((user) => user.id) }, isActive: true },
+          select: { id: true },
+        })
+      : [];
+    const periodIds = periods.map((period) => period.id);
+    const aggregate = periodIds.length
       ? await prisma.attendance.groupBy({
           by: ["userId"],
-          where: { periodId: period.id },
+          where: { periodId: { in: periodIds } },
           _count: { _all: true },
           _sum: { wageEarned: true },
         })
       : [];
+    const absenceReports = await prisma.absenceReport.findMany({
+      where: { status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        date: true,
+        kind: true,
+        reason: true,
+        user: { select: { name: true, username: true } },
+      },
+    });
     const byUser = new Map(
       aggregate.map((row) => [
         row.userId,
@@ -54,14 +79,15 @@ export default async function OwnerPage() {
     }));
     data = {
       employees,
-      period: period
-        ? {
-            id: period.id,
-            periodName: period.periodName,
-            startDate: period.startDate.toISOString(),
-            endDate: period.endDate.toISOString(),
-          }
-        : null,
+      activeCycleCount: periods.length,
+      absenceReports: absenceReports.map((report) => ({
+        id: report.id,
+        date: report.date.toISOString(),
+        kind: report.kind,
+        reason: report.reason,
+        employeeName: report.user.name,
+        username: report.user.username,
+      })),
       presentToday: new Set(presentToday.map((item) => item.userId)).size,
       totalWage: aggregate.reduce((sum, row) => sum + (row._sum.wageEarned ?? 0), 0),
     };
@@ -84,7 +110,7 @@ export default async function OwnerPage() {
             <a href="/dashboard/owner/loans" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#dce6de] bg-white px-4 text-sm font-semibold text-[#31443a] hover:bg-[#f4f8f4]">
               <Banknote size={16} /> Kelola pinjaman
             </a>
-            {data?.period && (
+            {data && data.employees.length > 0 && (
               <a href="/api/owner/export" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-[#dce6de] bg-white px-4 text-sm font-semibold text-[#31443a] hover:bg-[#f4f8f4]">
                 <Download size={16} /> Ekspor laporan gaji
               </a>
@@ -102,11 +128,12 @@ export default async function OwnerPage() {
             <section className="mt-8 grid gap-4 sm:grid-cols-3">
               <StatCard label="Total karyawan" value={String(data.employees.length)} note="Akun karyawan aktif" icon={<UsersRound size={19} />} />
               <StatCard label="Hadir hari ini" value={`${data.presentToday} / ${data.employees.length}`} note="Diperbarui saat halaman dimuat" icon={<span className="h-2.5 w-2.5 rounded-full bg-[#1da56b]" />} />
-              <StatCard label="Estimasi gaji periode ini" value={formatCurrency(data.totalWage)} note={data.period?.periodName ?? "Belum ada periode aktif"} icon={<ArrowUpRight size={19} />} />
+              <StatCard label="Estimasi gaji siklus aktif" value={formatCurrency(data.totalWage)} note="Dihitung terpisah untuk setiap karyawan" icon={<ArrowUpRight size={19} />} />
             </section>
             <OwnerDashboard
               initialEmployees={data.employees}
-              initialPeriod={data.period}
+              initialActiveCycleCount={data.activeCycleCount}
+              initialAbsenceReports={data.absenceReports}
               initialTotalWage={data.totalWage}
               initialPresentToday={data.presentToday}
               realtimeUrl={process.env.NEON_REALTIME_URL ?? null}

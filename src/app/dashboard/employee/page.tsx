@@ -14,6 +14,13 @@ export default async function EmployeePage() {
     wage: number;
     attendedToday: boolean;
     history: { date: string; attendedAt: string; wage: number }[];
+    absenceReports: {
+      id: string;
+      date: string;
+      kind: "LEAVE" | "EXPLANATION";
+      reason: string;
+      status: "PENDING" | "APPROVED" | "REJECTED";
+    }[];
     periodName: string | null;
     periodId: string | null;
   } | null = null;
@@ -21,11 +28,11 @@ export default async function EmployeePage() {
 
   try {
     const period = await prisma.payPeriod.findFirst({
-      where: { isActive: true },
+      where: { employeeId: session!.id, isActive: true },
       orderBy: { startDate: "desc" },
     });
     const today = dateFromKey(jakartaDateKey());
-    const [count, records, attendedToday] = period
+    const [count, records, attendedToday, absenceReports] = period
       ? await Promise.all([
           prisma.attendance.count({ where: { userId: session!.id, periodId: period.id } }),
           prisma.attendance.findMany({
@@ -38,8 +45,14 @@ export default async function EmployeePage() {
             where: { userId_date: { userId: session!.id, date: today } },
             select: { id: true },
           }),
+          prisma.absenceReport.findMany({
+            where: { userId: session!.id, periodId: period.id },
+            orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+            take: 10,
+            select: { id: true, date: true, kind: true, reason: true, status: true },
+          }),
         ])
-      : [0, [], null];
+      : [0, [], null, []];
     dashboardData = {
       count,
       wage: records.reduce((sum, record) => sum + record.wageEarned, 0),
@@ -48,6 +61,10 @@ export default async function EmployeePage() {
         date: record.date.toISOString(),
         attendedAt: record.createdAt.toISOString(),
         wage: record.wageEarned,
+      })),
+      absenceReports: absenceReports.map((report) => ({
+        ...report,
+        date: report.date.toISOString(),
       })),
       periodName: period?.periodName ?? null,
       periodId: period?.id ?? null,
@@ -67,7 +84,7 @@ export default async function EmployeePage() {
           <div className="relative">
             <p className="text-sm font-medium text-[#b9f1ce]">{formatJakartaDate()}</p>
             <h1 className="mt-4 text-3xl font-semibold tracking-tight sm:text-[40px]">Halo, {session?.name?.split(" ")[0] ?? "Karyawan"} 👋</h1>
-            <p className="mt-3 max-w-lg text-sm leading-6 text-white/70">Satu langkah kecil hari ini. Catat kehadiranmu dan pantau penghasilan pada periode berjalan.</p>
+            <p className="mt-3 max-w-lg text-sm leading-6 text-white/70">Satu langkah kecil hari ini. Catat kehadiranmu dan pantau penghasilan pada siklus berjalan.</p>
           </div>
         </section>
 
@@ -83,6 +100,7 @@ export default async function EmployeePage() {
             initialWage={dashboardData.wage}
             initialAttendedToday={dashboardData.attendedToday}
             initialHistory={dashboardData.history}
+            initialAbsenceReports={dashboardData.absenceReports}
             periodName={dashboardData.periodName}
           />
         ) : null}

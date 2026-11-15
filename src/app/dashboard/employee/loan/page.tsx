@@ -29,7 +29,7 @@ export default async function EmployeeLoanRoute() {
 
   try {
     const period = await prisma.payPeriod.findFirst({
-      where: { isActive: true },
+      where: { employeeId: session.id, isActive: true },
       orderBy: { startDate: "desc" },
       select: { id: true, periodName: true },
     });

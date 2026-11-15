@@ -19,7 +19,7 @@ export default function LoginPage() {
             </div>
           </div>
           <div className="relative flex items-center justify-between border-t border-white/15 pt-5 text-sm text-white/60">
-            <span>Absensi · Penggajian · Periode 15 hari</span>
+            <span>Absensi · Penggajian · Siklus 15 kehadiran</span>
             <span>01 / 03</span>
           </div>
         </section>

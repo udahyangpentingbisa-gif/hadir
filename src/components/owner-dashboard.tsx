@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
-import { CalendarDays, Check, ChevronRight, CirclePlus, FileText, LoaderCircle, Pencil, RotateCcw, Trash2, UsersRound, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
+import { CalendarDays, Check, ChevronRight, CirclePlus, FileText, LoaderCircle, Pencil, Trash2, UsersRound, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   createRealtimeClient,
@@ -19,8 +20,15 @@ export type EmployeeRow = {
   wageTotal: number;
 };
 
-type Period = { id: string; periodName: string; startDate: string; endDate: string } | null;
 type AttendanceRow = { id: string; date: string; wageEarned: number };
+type AbsenceReportRow = {
+  id: string;
+  date: string;
+  kind: "LEAVE" | "EXPLANATION";
+  reason: string;
+  employeeName: string;
+  username: string;
+};
 type LiveEmployeeRow = EmployeeRow & { attendedToday: boolean };
 type NeonServiceStatus = {
   postgres: { status: string };
@@ -30,20 +38,23 @@ type NeonServiceStatus = {
 
 export function OwnerDashboard({
   initialEmployees,
-  initialPeriod,
+  initialActiveCycleCount,
+  initialAbsenceReports,
   initialTotalWage,
   initialPresentToday,
   realtimeUrl,
 }: {
   initialEmployees: EmployeeRow[];
-  initialPeriod: Period;
+  initialActiveCycleCount: number;
+  initialAbsenceReports: AbsenceReportRow[];
   initialTotalWage: number;
   initialPresentToday: number;
   realtimeUrl: string | null;
 }) {
   const router = useRouter();
   const [employees, setEmployees] = useState(initialEmployees);
-  const [period, setPeriod] = useState(initialPeriod);
+  const [activeCycleCount, setActiveCycleCount] = useState(initialActiveCycleCount);
+  const [absenceReports, setAbsenceReports] = useState(initialAbsenceReports);
   const [totalWage, setTotalWage] = useState(initialTotalWage);
   const [modal, setModal] = useState<"add" | "edit" | "detail" | null>(null);
   const [selected, setSelected] = useState<EmployeeRow | null>(null);
@@ -64,9 +75,13 @@ export function OwnerDashboard({
         const response = await fetch("/api/owner/summary", { cache: "no-store" });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? "Ringkasan tidak dapat diperbarui.");
+        const absenceResponse = await fetch("/api/owner/absences", { cache: "no-store" });
+        const absenceResult = await absenceResponse.json();
+        if (!absenceResponse.ok) throw new Error(absenceResult.error ?? "Laporan ketidakhadiran gagal dimuat.");
         setEmployees(result.employees);
-        setPeriod(result.period);
+        setActiveCycleCount(result.activeCycleCount);
         setTotalWage(result.totalWage);
+        setAbsenceReports(absenceResult.reports);
         router.refresh();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Ringkasan tidak dapat diperbarui.");
@@ -188,9 +203,13 @@ export function OwnerDashboard({
     const response = await fetch("/api/owner/summary", { cache: "no-store" });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error ?? "Data gagal diperbarui.");
+    const absenceResponse = await fetch("/api/owner/absences", { cache: "no-store" });
+    const absenceResult = await absenceResponse.json();
+    if (!absenceResponse.ok) throw new Error(absenceResult.error ?? "Laporan ketidakhadiran gagal dimuat.");
     setEmployees(result.employees);
-    setPeriod(result.period);
+    setActiveCycleCount(result.activeCycleCount);
     setTotalWage(result.totalWage);
+    setAbsenceReports(absenceResult.reports);
     router.refresh();
   }
 
@@ -245,24 +264,21 @@ export function OwnerDashboard({
     }
   }
 
-  async function startPeriod() {
-    const periodName = window.prompt("Nama periode baru:", `Periode ${new Date().toLocaleDateString("id-ID")}`);
-    if (periodName === null) return;
-    if (!window.confirm("Mulai periode baru? Periode aktif sebelumnya akan ditutup; riwayatnya tetap tersimpan.")) return;
+  async function reviewAbsence(report: AbsenceReportRow, status: "APPROVED" | "REJECTED") {
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/owner/periods", {
-        method: "POST",
+      const response = await fetch(`/api/owner/absences/${report.id}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ periodName }),
+        body: JSON.stringify({ status }),
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Periode baru gagal dibuat.");
-      setNotice(`${result.period.periodName} sekarang aktif.`);
-      await refreshData();
+      if (!response.ok) throw new Error(result.error ?? "Laporan ketidakhadiran gagal diperbarui.");
+      setAbsenceReports((reports) => reports.filter((item) => item.id !== report.id));
+      setNotice(status === "APPROVED" ? "Laporan ketidakhadiran disetujui." : "Laporan ketidakhadiran ditolak.");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Terjadi kesalahan.");
+      setError(caught instanceof Error ? caught.message : "Laporan ketidakhadiran gagal diperbarui.");
     } finally {
       setBusy(false);
     }
@@ -316,7 +332,7 @@ export function OwnerDashboard({
   }
 
   async function removeAttendance(record: AttendanceRow) {
-    if (!selected || !window.confirm(`Hapus absensi tanggal ${formatDate(record.date)}? Gaji periode akan dihitung ulang.`)) return;
+    if (!selected || !window.confirm(`Hapus absensi tanggal ${formatDate(record.date)}? Gaji siklus akan dihitung ulang.`)) return;
     setBusy(true);
     setError("");
     try {
@@ -336,17 +352,14 @@ export function OwnerDashboard({
   return (
     <>
       <section className="mt-9 overflow-hidden rounded-2xl border border-[#e6ece6] bg-white shadow-[0_3px_14px_rgba(27,53,40,0.03)]">
-        <div className="flex flex-col justify-between gap-4 border-b border-[#edf1ed] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
+        <div className="flex items-start gap-3 border-b border-[#edf1ed] px-5 py-5 sm:px-6">
           <div className="flex items-start gap-3">
             <span className="mt-0.5 grid h-10 w-10 place-items-center rounded-xl bg-[#eff7f1] text-[#15734c]"><CalendarDays size={18} /></span>
             <div>
-              <p className="text-sm font-semibold">{period?.periodName ?? "Belum ada periode aktif"}</p>
-              <p className="mt-1 text-xs text-[#7b8980]">{period ? `Maksimal 15 hari kehadiran · ${formatDate(period.startDate)} — ${formatDate(period.endDate)}` : "Mulai periode untuk mengaktifkan absensi."}</p>
+              <p className="text-sm font-semibold">Siklus kerja per karyawan</p>
+              <p className="mt-1 text-xs text-[#7b8980]">{activeCycleCount} siklus aktif · Siklus berikutnya otomatis dimulai setelah 15 absensi tiap karyawan.</p>
             </div>
           </div>
-          <button onClick={startPeriod} disabled={busy} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#eaf4ed] px-4 text-sm font-semibold text-[#15734c] transition hover:bg-[#dceee2] disabled:opacity-50">
-            <RotateCcw size={15} /> {period ? "Mulai periode baru" : "Buat periode aktif"}
-          </button>
         </div>
       </section>
 
@@ -354,7 +367,7 @@ export function OwnerDashboard({
         <div className="flex flex-col justify-between gap-4 border-b border-[#edf1ed] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
           <div>
             <h2 className="text-lg font-semibold">Manajemen karyawan</h2>
-            <p className="mt-1 text-sm text-[#7b8980]">{employees.length} akun terdaftar · {presentToday} hadir hari ini · Gaji periode ini {currency(totalWage)}</p>
+            <p className="mt-1 text-sm text-[#7b8980]">{employees.length} akun terdaftar · {presentToday} hadir hari ini · Gaji siklus aktif {currency(totalWage)}</p>
           </div>
           <button onClick={() => { setSelected(null); setModal("add"); setError(""); }} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#15734c] px-4 text-sm font-semibold text-white transition hover:bg-[#105d3d]">
             <CirclePlus size={17} /> Tambah karyawan
@@ -369,7 +382,7 @@ export function OwnerDashboard({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[700px] text-left">
             <thead className="bg-[#fafcfa] text-[11px] font-semibold uppercase tracking-[0.12em] text-[#89958d]">
-              <tr><th className="px-6 py-3.5">Karyawan</th><th className="px-4 py-3.5">Kehadiran</th><th className="px-4 py-3.5">Gaji periode</th><th className="px-6 py-3.5 text-right">Aksi</th></tr>
+              <tr><th className="px-6 py-3.5">Karyawan</th><th className="px-4 py-3.5">Kehadiran</th><th className="px-4 py-3.5">Gaji siklus</th><th className="px-6 py-3.5 text-right">Aksi</th></tr>
             </thead>
             <tbody className="divide-y divide-[#edf1ed]">
               {employees.map((employee) => (
@@ -380,7 +393,7 @@ export function OwnerDashboard({
                       <span><span className="block text-sm font-semibold">{employee.name}</span><span className="mt-1 block text-xs text-[#89958d]">@{employee.username}{employee.email ? ` · ${employee.email}` : ""}</span></span>
                     </div>
                   </td>
-                  <td className="px-4 py-4"><div className="text-sm font-semibold">{employee.attendanceCount} <span className="font-normal text-[#89958d]">/ 15 Hari</span></div><div className="mt-2 h-1.5 w-28 overflow-hidden rounded-full bg-[#edf1ed]"><div className="h-full rounded-full bg-[#2ba36c]" style={{ width: `${Math.min(employee.attendanceCount / 15 * 100, 100)}%` }} /></div></td>
+                  <td className="px-4 py-4"><div className="text-sm font-semibold">{employee.attendanceCount} <span className="font-normal text-[#89958d]">/ 15 Hadir</span></div><div className="mt-2 h-1.5 w-28 overflow-hidden rounded-full bg-[#edf1ed]"><div className="h-full rounded-full bg-[#2ba36c]" style={{ width: `${Math.min(employee.attendanceCount / 15 * 100, 100)}%` }} /></div></td>
                   <td className="px-4 py-4 text-sm font-semibold">{currency(employee.wageTotal)}</td>
                   <td className="px-6 py-4"><div className="flex justify-end gap-1">
                     <button onClick={() => openEdit(employee)} aria-label={`Edit ${employee.name}`} className="grid h-9 w-9 place-items-center rounded-lg text-[#637168] transition hover:bg-[#eff7f1] hover:text-[#15734c]"><Pencil size={16} /></button>
@@ -393,6 +406,29 @@ export function OwnerDashboard({
               {employees.length === 0 && <tr><td colSpan={4} className="px-6 py-14 text-center"><UsersRound size={24} className="mx-auto text-[#a6b2a9]" /><p className="mt-3 text-sm font-medium">Belum ada karyawan</p><p className="mt-1 text-xs text-[#89958d]">Tambahkan akun untuk mulai mencatat kehadiran.</p></td></tr>}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="mt-7 overflow-hidden rounded-2xl border border-[#e6ece6] bg-white shadow-[0_3px_14px_rgba(27,53,40,0.03)]">
+        <div className="border-b border-[#edf1ed] px-5 py-5 sm:px-6">
+          <h2 className="text-lg font-semibold">Laporan cuti dan ketidakhadiran</h2>
+          <p className="mt-1 text-sm text-[#7b8980]">{absenceReports.length} laporan menunggu persetujuan owner.</p>
+        </div>
+        <div className="divide-y divide-[#edf1ed]">
+          {absenceReports.map((report) => (
+            <div key={report.id} className="flex flex-col justify-between gap-4 px-5 py-4 sm:flex-row sm:items-center sm:px-6">
+              <div>
+                <p className="text-sm font-semibold">{report.employeeName} <span className="font-normal text-[#89958d]">@{report.username}</span></p>
+                <p className="mt-1 text-xs text-[#718078]">{report.kind === "LEAVE" ? "Cuti/off (tidak dibayar)" : "Keterangan ketidakhadiran"} · {formatDate(report.date)}</p>
+                <p className="mt-2 text-sm text-[#536258]">{report.reason}</p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button onClick={() => void reviewAbsence(report, "APPROVED")} disabled={busy} className="h-9 rounded-lg bg-[#15734c] px-3 text-xs font-semibold text-white disabled:opacity-50">Setujui</button>
+                <button onClick={() => void reviewAbsence(report, "REJECTED")} disabled={busy} className="h-9 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 disabled:opacity-50">Tolak</button>
+              </div>
+            </div>
+          ))}
+          {absenceReports.length === 0 && <p className="px-6 py-10 text-center text-sm text-[#89958d]">Belum ada laporan yang menunggu.</p>}
         </div>
       </section>
 
@@ -433,7 +469,7 @@ export function OwnerDashboard({
                   <label className="min-w-0 flex-1"><span className="mb-1.5 block text-sm font-medium">Tambah/koreksi kehadiran</span><input type="date" value={attendanceDate} onChange={(event) => setAttendanceDate(event.target.value)} className="h-11 w-full rounded-xl border border-[#e1e8e2] px-3 text-sm outline-none focus:border-[#15734c]" /></label>
                   <button type="button" onClick={() => void addAttendance()} disabled={busy || !attendanceDate} className="h-11 rounded-xl bg-[#15734c] px-4 text-sm font-semibold text-white disabled:opacity-50">Tambah</button>
                 </div>
-                <p className="mt-2 text-xs text-[#89958d]">Menambah kehadiran memberi gaji Rp 50.000; batas 15 hari tetap berlaku.</p>
+                <p className="mt-2 text-xs text-[#89958d]">Tanggal lampau, hari ini, atau mendatang dapat dicatat owner. Tiap karyawan memiliki siklus sendiri; absensi memberi gaji Rp 50.000 dan siklus berganti setelah 15 kehadiran.</p>
                 {(error || notice) && <p role={error ? "alert" : "status"} className={`mt-3 text-sm ${error ? "text-red-700" : "text-[#15734c]"}`}>{error || notice}</p>}
                 <div className="mt-5 max-h-64 divide-y divide-[#edf1ed] overflow-y-auto rounded-xl border border-[#edf1ed]">
                   {detailLoading ? <p className="p-5 text-center text-sm text-[#718078]">Memuat riwayat...</p> : attendanceRows.length ? attendanceRows.map((record) => (
@@ -441,7 +477,7 @@ export function OwnerDashboard({
                       <div><p className="text-sm font-medium">{formatDate(record.date)}</p><p className="mt-1 text-xs text-[#89958d]">{currency(record.wageEarned)}</p></div>
                       <button type="button" disabled={busy} onClick={() => void removeAttendance(record)} className="rounded-lg px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">Hapus koreksi</button>
                     </div>
-                  )) : <p className="p-5 text-center text-sm text-[#89958d]">Belum ada absensi pada periode aktif.</p>}
+                  )) : <p className="p-5 text-center text-sm text-[#89958d]">Belum ada absensi pada siklus aktif.</p>}
                 </div>
               </div>
             ) : (

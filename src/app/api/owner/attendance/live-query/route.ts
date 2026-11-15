@@ -31,12 +31,10 @@ export async function GET() {
 
   try {
     const query = rawSql<LiveEmployeeRow>(
-      `WITH active_period AS (
-         SELECT id
+      `WITH active_periods AS (
+         SELECT id, employee_id
          FROM pay_periods
          WHERE is_active = TRUE
-         ORDER BY start_date DESC
-         LIMIT 1
        )
        SELECT
          users.id,
@@ -47,10 +45,10 @@ export async function GET() {
          COALESCE(SUM(attendances.wage_earned), 0)::int AS "wageTotal",
          COUNT(DISTINCT today_attendances.id)::int > 0 AS "attendedToday"
        FROM users
-       LEFT JOIN active_period ON TRUE
+       LEFT JOIN active_periods ON active_periods.employee_id = users.id
        LEFT JOIN attendances
          ON attendances.user_id = users.id
-        AND attendances.period_id = active_period.id
+        AND attendances.period_id = active_periods.id
        LEFT JOIN attendances AS today_attendances
          ON today_attendances.user_id = users.id
         AND today_attendances.date = $1::date

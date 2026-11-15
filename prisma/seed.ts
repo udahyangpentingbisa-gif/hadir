@@ -1,5 +1,6 @@
 import { PrismaClient, Role } from "@prisma/client";
 import { hash } from "bcryptjs";
+import { getActivePayPeriod } from "../src/lib/pay-periods";
 
 const prisma = new PrismaClient();
 
@@ -17,41 +18,12 @@ async function main() {
     },
   });
 
-  const activePeriod = await prisma.payPeriod.findFirst({
-    where: { isActive: true },
+  const employees = await prisma.user.findMany({
+    where: { role: Role.EMPLOYEE },
+    select: { id: true },
   });
-
-  if (!activePeriod) {
-    const now = new Date();
-    const year = Number(
-      new Intl.DateTimeFormat("en", {
-        timeZone: "Asia/Jakarta",
-        year: "numeric",
-      }).format(now),
-    );
-    const month = Number(
-      new Intl.DateTimeFormat("en", {
-        timeZone: "Asia/Jakarta",
-        month: "2-digit",
-      }).format(now),
-    );
-    const day = Number(
-      new Intl.DateTimeFormat("en", {
-        timeZone: "Asia/Jakarta",
-        day: "2-digit",
-      }).format(now),
-    );
-    const startDate = new Date(Date.UTC(year, month - 1, day));
-    const endDate = new Date(Date.UTC(year, month - 1, day + 14));
-
-    await prisma.payPeriod.create({
-      data: {
-        periodName: "Periode 1",
-        startDate,
-        endDate,
-        isActive: true,
-      },
-    });
+  for (const employee of employees) {
+    await prisma.$transaction((tx) => getActivePayPeriod(tx, employee.id));
   }
 
   console.log("Seed selesai. Login awal: admin / admin123");

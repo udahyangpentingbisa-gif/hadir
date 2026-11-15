@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getSession } from "@/lib/session";
 import { LOAN_ELIGIBILITY_DAYS, MAX_OUTSTANDING_LOAN } from "@/lib/format";
+import { getOpenPayPeriod } from "@/lib/pay-periods";
 import { prisma } from "@/lib/prisma";
 
 const loanSchema = z.object({
@@ -24,12 +25,7 @@ export async function POST(request: NextRequest) {
   try {
     const result = await prisma.$transaction(
       async (tx) => {
-        const period = await tx.payPeriod.findFirst({
-          where: { isActive: true },
-          orderBy: { startDate: "desc" },
-          select: { id: true },
-        });
-        if (!period) throw new Error("NO_ACTIVE_PERIOD");
+        const { period } = await getOpenPayPeriod(tx, session.id);
 
         const attendanceDays = await tx.attendance.count({
           where: { userId: session.id, periodId: period.id },
@@ -72,11 +68,8 @@ export async function POST(request: NextRequest) {
       available: result.available,
     }, { status: 201 });
   } catch (error) {
-    if (error instanceof Error && error.message === "NO_ACTIVE_PERIOD") {
-      return NextResponse.json({ error: "Belum ada periode kerja aktif." }, { status: 409 });
-    }
     if (error instanceof Error && error.message === "NOT_ELIGIBLE") {
-      return NextResponse.json({ error: "Pengajuan pinjaman terbuka setelah 10 hari hadir pada periode aktif." }, { status: 403 });
+      return NextResponse.json({ error: "Pengajuan pinjaman terbuka setelah 10 hari hadir pada siklus aktif." }, { status: 403 });
     }
     if (error instanceof Error && error.message === "LOAN_LIMIT_EXCEEDED") {
       return NextResponse.json({ error: "Total pinjaman aktif dan menunggu persetujuan tidak boleh melebihi Rp 300.000." }, { status: 409 });

@@ -66,6 +66,10 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
           select: { id: true },
         });
         if (activeLoan) throw new Error("ACTIVE_LOAN");
+        await tx.absenceReport.deleteMany({ where: { userId: id } });
+        await tx.attendance.deleteMany({ where: { userId: id } });
+        await tx.loan.deleteMany({ where: { userId: id } });
+        await tx.payPeriod.deleteMany({ where: { employeeId: id } });
         await tx.user.delete({ where: { id } });
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },

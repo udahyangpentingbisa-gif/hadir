@@ -1,6 +1,7 @@
 import { hash } from "bcryptjs";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getActivePayPeriod } from "@/lib/pay-periods";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 
@@ -21,15 +22,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Lengkapi nama, username, dan kata sandi minimal 8 karakter." }, { status: 400 });
   }
   try {
-    const employee = await prisma.user.create({
-      data: {
-        name: parsed.data.name,
-        username: parsed.data.username.toLowerCase(),
-        email: parsed.data.email ? parsed.data.email.toLowerCase() : null,
-        password: await hash(parsed.data.password, 12),
-        role: "EMPLOYEE",
-      },
-      select: { id: true, name: true, username: true, email: true },
+    const employee = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          name: parsed.data.name,
+          username: parsed.data.username.toLowerCase(),
+          email: parsed.data.email ? parsed.data.email.toLowerCase() : null,
+          password: await hash(parsed.data.password, 12),
+          role: "EMPLOYEE",
+        },
+        select: { id: true, name: true, username: true, email: true },
+      });
+      await getActivePayPeriod(tx, created.id);
+      return created;
     });
     return NextResponse.json({ employee }, { status: 201 });
   } catch (error) {

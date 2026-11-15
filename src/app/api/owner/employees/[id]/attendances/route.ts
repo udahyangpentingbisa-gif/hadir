@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
-import { dateFromKey, jakartaDateKey } from "@/lib/dates";
+import { dateFromKey } from "@/lib/dates";
 import { DAILY_WAGE, PERIOD_ATTENDANCE_LIMIT } from "@/lib/format";
+import { advancePayPeriod, getOpenPayPeriod } from "@/lib/pay-periods";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 
@@ -25,7 +26,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     });
     if (!employee) return NextResponse.json({ error: "Karyawan tidak ditemukan." }, { status: 404 });
     const period = await prisma.payPeriod.findFirst({
-      where: { isActive: true },
+      where: { employeeId: id, isActive: true },
       orderBy: { startDate: "desc" },
     });
     const records = period
@@ -61,39 +62,52 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (date.toISOString().slice(0, 10) !== dateKey) {
     return NextResponse.json({ error: "Tanggal absensi tidak valid." }, { status: 400 });
   }
-  if (dateKey > jakartaDateKey()) {
-    return NextResponse.json({ error: "Tanggal absensi tidak boleh di masa depan." }, { status: 400 });
-  }
 
   try {
     const record = await prisma.$transaction(
       async (tx) => {
-        const period = await tx.payPeriod.findFirst({
-          where: { isActive: true },
-          orderBy: { startDate: "desc" },
-        });
-        if (!period) throw new Error("NO_ACTIVE_PERIOD");
         const employee = await tx.user.findFirst({ where: { id, role: "EMPLOYEE" }, select: { id: true } });
         if (!employee) throw new Error("EMPLOYEE_NOT_FOUND");
-        const count = await tx.attendance.count({ where: { userId: id, periodId: period.id } });
-        if (count >= PERIOD_ATTENDANCE_LIMIT) throw new Error("PERIOD_COMPLETE");
-        return tx.attendance.create({
+        const { period, attendanceCount } = await getOpenPayPeriod(tx, id);
+        const absence = await tx.absenceReport.findFirst({
+          where: {
+            userId: id,
+            date,
+            status: { in: ["PENDING", "APPROVED"] },
+          },
+          select: { id: true },
+        });
+        if (absence) throw new Error("ABSENCE_ALREADY_REPORTED");
+
+        const record = await tx.attendance.create({
           data: { userId: id, periodId: period.id, date, wageEarned: DAILY_WAGE },
           select: { id: true, date: true, wageEarned: true },
         });
+        const count = attendanceCount + 1;
+        let nextPeriod = null;
+        if (count === PERIOD_ATTENDANCE_LIMIT) {
+          const lastAttendance = await tx.attendance.findFirst({
+            where: { userId: id, periodId: period.id },
+            orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+            select: { date: true },
+          });
+          if (!lastAttendance) throw new Error("PERIOD_ATTENDANCE_INCONSISTENT");
+          nextPeriod = await advancePayPeriod(tx, period.id, id, lastAttendance.date);
+        }
+        return { record, nextPeriod };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
-    return NextResponse.json({ record: { ...record, date: record.date.toISOString() } }, { status: 201 });
+    return NextResponse.json({
+      record: { ...record.record, date: record.record.date.toISOString() },
+      cycleCompleted: Boolean(record.nextPeriod),
+    }, { status: 201 });
   } catch (error) {
-    if (error instanceof Error && error.message === "NO_ACTIVE_PERIOD") {
-      return NextResponse.json({ error: "Belum ada periode aktif." }, { status: 409 });
-    }
     if (error instanceof Error && error.message === "EMPLOYEE_NOT_FOUND") {
       return NextResponse.json({ error: "Karyawan tidak ditemukan." }, { status: 404 });
     }
-    if (error instanceof Error && error.message === "PERIOD_COMPLETE") {
-      return NextResponse.json({ error: "Batas 15 hari pada periode ini sudah tercapai." }, { status: 409 });
+    if (error instanceof Error && error.message === "ABSENCE_ALREADY_REPORTED") {
+      return NextResponse.json({ error: "Tanggal ini sudah memiliki laporan ketidakhadiran." }, { status: 409 });
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return NextResponse.json({ error: "Karyawan sudah memiliki absensi pada tanggal tersebut." }, { status: 409 });

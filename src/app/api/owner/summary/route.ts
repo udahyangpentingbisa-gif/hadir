@@ -11,22 +11,28 @@ export async function GET() {
 
   try {
     const today = dateFromKey(jakartaDateKey());
-    const [employees, period, presentToday] = await Promise.all([
+    const [employees, presentToday] = await Promise.all([
       prisma.user.findMany({
         where: { role: "EMPLOYEE" },
         orderBy: { name: "asc" },
         select: { id: true, name: true, username: true, email: true, createdAt: true },
       }),
-      prisma.payPeriod.findFirst({ where: { isActive: true }, orderBy: { startDate: "desc" } }),
       prisma.attendance.findMany({
         where: { date: today, user: { role: "EMPLOYEE" } },
         select: { userId: true },
       }),
     ]);
-    const allAttendance = period
+    const periods = employees.length
+      ? await prisma.payPeriod.findMany({
+          where: { employeeId: { in: employees.map((employee) => employee.id) }, isActive: true },
+          select: { id: true, employeeId: true },
+        })
+      : [];
+    const activePeriodIds = periods.map((period) => period.id);
+    const allAttendance = activePeriodIds.length
       ? await prisma.attendance.groupBy({
           by: ["userId"],
-          where: { periodId: period.id },
+          where: { periodId: { in: activePeriodIds } },
           _count: { _all: true },
           _sum: { wageEarned: true },
         })
@@ -45,14 +51,7 @@ export async function GET() {
         attendanceCount: byUser.get(employee.id)?.count ?? 0,
         wageTotal: byUser.get(employee.id)?.wage ?? 0,
       })),
-      period: period
-        ? {
-            id: period.id,
-            periodName: period.periodName,
-            startDate: period.startDate.toISOString(),
-            endDate: period.endDate.toISOString(),
-          }
-        : null,
+      activeCycleCount: periods.length,
       presentToday: new Set(presentToday.map((item) => item.userId)).size,
       employeeCount: employees.length,
       totalWage: allAttendance.reduce((sum, item) => sum + (item._sum.wageEarned ?? 0), 0),
