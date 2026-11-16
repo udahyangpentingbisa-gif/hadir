@@ -37,6 +37,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         })
       : [];
     return NextResponse.json({
+      periodId: period?.id ?? null,
       periodName: period?.periodName ?? null,
       records: records.map((record) => ({ ...record, date: record.date.toISOString() })),
     });
@@ -119,5 +120,64 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
     console.error("Koreksi absensi gagal:", error);
     return NextResponse.json({ error: "Absensi tidak dapat ditambahkan." }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: NextRequest, context: RouteContext) {
+  const auth = await ownerOnly();
+  if ("response" in auth) return auth.response;
+  const { id } = await context.params;
+  const body: unknown = await request.json().catch(() => null);
+  const periodId =
+    typeof body === "object" && body !== null && "periodId" in body && typeof body.periodId === "string"
+      ? body.periodId
+      : "";
+  if (!periodId) {
+    return NextResponse.json({ error: "Siklus aktif tidak valid." }, { status: 400 });
+  }
+
+  try {
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const employee = await tx.user.findFirst({
+          where: { id, role: "EMPLOYEE" },
+          select: { id: true },
+        });
+        if (!employee) return { notFound: true as const };
+
+        const period = await tx.payPeriod.findFirst({
+          where: { id: periodId, employeeId: id, isActive: true },
+          orderBy: { startDate: "desc" },
+          select: { id: true },
+        });
+        if (!period) return { periodChanged: true as const };
+
+        const deleted = await tx.attendance.deleteMany({
+          where: { userId: id, periodId: period.id },
+        });
+        return { deletedCount: deleted.count };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
+
+    if ("notFound" in result) {
+      return NextResponse.json({ error: "Karyawan tidak ditemukan." }, { status: 404 });
+    }
+    if ("periodChanged" in result) {
+      return NextResponse.json(
+        { error: "Siklus aktif berubah. Muat ulang detail karyawan sebelum menghapus." },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ ok: true, deletedCount: result.deletedCount });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") {
+      return NextResponse.json(
+        { error: "Absensi berubah bersamaan. Muat ulang detail lalu coba lagi." },
+        { status: 409 },
+      );
+    }
+    console.error("Penghapusan seluruh koreksi absensi gagal:", error);
+    return NextResponse.json({ error: "Catatan absensi siklus aktif tidak dapat dihapus." }, { status: 500 });
   }
 }

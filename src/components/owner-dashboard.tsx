@@ -61,6 +61,7 @@ export function OwnerDashboard({
   const [modal, setModal] = useState<"add" | "edit" | "detail" | null>(null);
   const [selected, setSelected] = useState<EmployeeRow | null>(null);
   const [attendanceRows, setAttendanceRows] = useState<AttendanceRow[]>([]);
+  const [activePeriodId, setActivePeriodId] = useState<string | null>(null);
   const [attendanceDate, setAttendanceDate] = useState("");
   const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -319,6 +320,7 @@ export function OwnerDashboard({
   async function openDetails(employee: EmployeeRow) {
     setSelected(employee);
     setAttendanceRows([]);
+    setActivePeriodId(null);
     setModal("detail");
     setError("");
     setDetailLoading(true);
@@ -326,6 +328,7 @@ export function OwnerDashboard({
       const response = await fetch(`/api/owner/employees/${employee.id}/attendances`, { cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Detail absensi gagal dimuat.");
+      setActivePeriodId(result.periodId);
       setAttendanceRows(result.records);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Detail absensi gagal dimuat.");
@@ -358,7 +361,7 @@ export function OwnerDashboard({
   }
 
   async function removeAttendance(record: AttendanceRow) {
-    if (!selected || !window.confirm(`Hapus absensi tanggal ${formatDate(record.date)}? Gaji siklus akan dihitung ulang.`)) return;
+    if (!selected || !window.confirm(`Hapus hanya catatan absensi tanggal ${formatDate(record.date)}? Gaji siklus akan dihitung ulang.`)) return;
     setBusy(true);
     setError("");
     try {
@@ -370,6 +373,44 @@ export function OwnerDashboard({
       await refreshData();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Absensi gagal dihapus.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeAllActiveAttendance() {
+    if (
+      !selected ||
+      !activePeriodId ||
+      attendanceRows.length === 0 ||
+      !window.confirm(
+        `Hapus semua ${attendanceRows.length} catatan absensi pada siklus aktif ${selected.name}? Siklus sebelumnya tidak terpengaruh dan gaji siklus aktif dihitung ulang.`,
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/owner/employees/${selected.id}/attendances`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ periodId: activePeriodId }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Catatan absensi gagal dihapus.");
+      if (typeof result.deletedCount !== "number") {
+        throw new Error("Respons penghapusan absensi tidak valid.");
+      }
+      setNotice(
+        result.deletedCount === 0
+          ? "Tidak ada catatan absensi di siklus aktif."
+          : `${result.deletedCount} catatan absensi siklus aktif dihapus; gaji dihitung ulang.`,
+      );
+      await openDetails(selected);
+      await refreshData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Catatan absensi gagal dihapus.");
     } finally {
       setBusy(false);
     }
@@ -514,12 +555,23 @@ export function OwnerDashboard({
                   <button type="button" onClick={() => void addAttendance()} disabled={busy || !attendanceDate} className="h-11 rounded-xl bg-[#15734c] px-4 text-sm font-semibold text-white disabled:opacity-50">Tambah</button>
                 </div>
                 <p className="mt-2 text-xs text-[#89958d]">Tanggal lampau, hari ini, atau mendatang dapat dicatat owner. Tiap karyawan memiliki siklus sendiri; absensi memberi gaji Rp 50.000 dan siklus berganti setelah 15 kehadiran.</p>
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-[#89958d]">{attendanceRows.length} catatan di siklus aktif</p>
+                  <button
+                    type="button"
+                    disabled={busy || detailLoading || attendanceRows.length === 0}
+                    onClick={() => void removeAllActiveAttendance()}
+                    className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
+                  >
+                    <Trash2 size={14} /> Hapus semua catatan
+                  </button>
+                </div>
                 {(error || notice) && <p role={error ? "alert" : "status"} className={`mt-3 text-sm ${error ? "text-red-700" : "text-[#15734c]"}`}>{error || notice}</p>}
                 <div className="mt-5 max-h-64 divide-y divide-[#edf1ed] overflow-y-auto rounded-xl border border-[#edf1ed]">
                   {detailLoading ? <p className="p-5 text-center text-sm text-[#718078]">Memuat riwayat...</p> : attendanceRows.length ? attendanceRows.map((record) => (
                     <div key={record.id} className="flex items-center justify-between gap-3 px-4 py-3">
                       <div><p className="text-sm font-medium">{formatDate(record.date)}</p><p className="mt-1 text-xs text-[#89958d]">{currency(record.wageEarned)}</p></div>
-                      <button type="button" disabled={busy} onClick={() => void removeAttendance(record)} className="rounded-lg px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">Hapus koreksi</button>
+                      <button type="button" disabled={busy} onClick={() => void removeAttendance(record)} className="rounded-lg px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">Hapus ini saja</button>
                     </div>
                   )) : <p className="p-5 text-center text-sm text-[#89958d]">Belum ada absensi pada siklus aktif.</p>}
                 </div>
