@@ -1,15 +1,20 @@
+import { Shield } from "lucide-react";
 import { LoginForm } from "@/components/login-form";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function LoginPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f5f7f4] px-5 py-10">
-      <div className="grid w-full max-w-5xl overflow-hidden rounded-[30px] bg-white shadow-[0_24px_80px_rgba(27,53,40,0.12)] md:grid-cols-[1.05fr_0.95fr]">
+    <main className="relative flex min-h-screen items-center justify-center bg-[#f5f7f4] px-4 py-6 sm:px-5 sm:py-10">
+      <div className="fixed right-4 top-4 z-20 sm:right-6 sm:top-6">
+        <ThemeToggle />
+      </div>
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-2xl bg-white shadow-[0_24px_80px_rgba(27,53,40,0.12)] md:grid-cols-[1.05fr_0.95fr] md:rounded-[30px]">
         <section className="relative hidden min-h-[620px] flex-col justify-between overflow-hidden bg-[#123e2d] p-12 text-white md:flex">
           <div className="absolute -right-24 -top-20 h-80 w-80 rounded-full border border-white/10" />
           <div className="absolute -right-8 -top-4 h-48 w-48 rounded-full border border-white/10" />
           <div className="relative">
             <div className="flex items-center gap-3 text-lg font-semibold tracking-tight">
-              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#b9f1ce] text-[#123e2d]">H</span>
+              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#b9f1ce] text-[#123e2d]"><Shield size={20} /></span>
               hadir<span className="text-[#b9f1ce]">.</span>
             </div>
             <div className="mt-24 max-w-sm">
@@ -23,10 +28,10 @@ export default function LoginPage() {
             <span>01 / 03</span>
           </div>
         </section>
-        <section className="flex min-h-[620px] flex-col justify-center px-7 py-12 sm:px-12">
+        <section className="flex min-h-0 flex-col justify-center px-5 py-8 sm:px-12 sm:py-12 md:min-h-[620px]">
           <div className="mb-12 md:hidden">
             <div className="flex items-center gap-3 text-lg font-semibold">
-              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#123e2d] text-white">H</span>
+              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#123e2d] text-white"><Shield size={20} /></span>
               hadir<span className="text-[#15734c]">.</span>
             </div>
           </div>

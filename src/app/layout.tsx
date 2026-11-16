@@ -10,7 +10,15 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="id">
+    <html lang="id" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'if(localStorage.getItem("hadir-theme")==="dark")document.documentElement.dataset.theme="dark"',
+          }}
+        />
+      </head>
       <body>{children}</body>
     </html>
   );

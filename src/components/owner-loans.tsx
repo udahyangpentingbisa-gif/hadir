@@ -84,7 +84,7 @@ export function OwnerLoans({ initialLoans }: { initialLoans: OwnerLoanRow[] }) {
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Pengajuan pinjaman</h1>
           <p className="mt-2 text-sm text-[#718078]">Setujui atau tolak pengajuan, lalu tandai lunas setelah pengembalian selesai.</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex w-full flex-wrap gap-3 sm:w-auto">
           <SummaryCard label="Menunggu persetujuan" value={String(pending)} />
           <SummaryCard label="Total pinjaman aktif" value={currency(outstanding)} />
         </div>
@@ -106,7 +106,7 @@ export function OwnerLoans({ initialLoans }: { initialLoans: OwnerLoanRow[] }) {
       )}
 
       <section className="mt-5 overflow-hidden rounded-2xl border border-[#e6ece6] bg-white">
-        <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr] gap-3 border-b border-[#edf1ed] bg-[#fafcfa] px-5 py-3 text-xs font-semibold uppercase tracking-wide text-[#89958d]">
+        <div className="hidden grid-cols-[1.4fr_1fr_1fr_1fr] gap-3 border-b border-[#edf1ed] bg-[#fafcfa] px-5 py-3 text-xs font-semibold uppercase tracking-wide text-[#89958d] sm:grid">
           <span>Karyawan</span>
           <span>Nominal</span>
           <span>Status</span>
