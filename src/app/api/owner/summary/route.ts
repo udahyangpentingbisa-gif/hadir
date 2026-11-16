@@ -37,24 +37,41 @@ export async function GET() {
           _sum: { wageEarned: true },
         })
       : [];
+    const deductions = activePeriodIds.length
+      ? await prisma.absenceReport.groupBy({
+          by: ["userId"],
+          where: { periodId: { in: activePeriodIds } },
+          _sum: { salaryDeduction: true },
+        })
+      : [];
+    const deductionByUser = new Map(
+      deductions.map((item) => [item.userId, item._sum.salaryDeduction ?? 0]),
+    );
 
     const byUser = new Map(
       allAttendance.map((item) => [
         item.userId,
-        { count: item._count._all, wage: item._sum.wageEarned ?? 0 },
+        {
+          count: item._count._all,
+          wage: Math.max(
+            0,
+            (item._sum.wageEarned ?? 0) - (deductionByUser.get(item.userId) ?? 0),
+          ),
+        },
       ]),
     );
+    const employeeRows = employees.map((employee) => ({
+      ...employee,
+      createdAt: employee.createdAt.toISOString(),
+      attendanceCount: byUser.get(employee.id)?.count ?? 0,
+      wageTotal: byUser.get(employee.id)?.wage ?? 0,
+    }));
     return NextResponse.json({
-      employees: employees.map((employee) => ({
-        ...employee,
-        createdAt: employee.createdAt.toISOString(),
-        attendanceCount: byUser.get(employee.id)?.count ?? 0,
-        wageTotal: byUser.get(employee.id)?.wage ?? 0,
-      })),
+      employees: employeeRows,
       activeCycleCount: periods.length,
       presentToday: new Set(presentToday.map((item) => item.userId)).size,
       employeeCount: employees.length,
-      totalWage: allAttendance.reduce((sum, item) => sum + (item._sum.wageEarned ?? 0), 0),
+      totalWage: employeeRows.reduce((sum, employee) => sum + employee.wageTotal, 0),
       dailyWage: DAILY_WAGE,
       periodLimit: PERIOD_ATTENDANCE_LIMIT,
     });

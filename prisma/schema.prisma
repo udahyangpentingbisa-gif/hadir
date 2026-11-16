@@ -102,17 +102,18 @@ model Loan {
 }
 
 model AbsenceReport {
-  id         String        @id @default(cuid())
-  userId     String        @map("user_id")
-  periodId   String        @map("period_id")
-  date       DateTime      @db.Date
-  kind       AbsenceKind
-  reason     String
-  status     AbsenceStatus @default(PENDING)
-  createdAt  DateTime      @default(now()) @map("created_at")
-  reviewedAt DateTime?     @map("reviewed_at")
-  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  period     PayPeriod     @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  id              String        @id @default(cuid())
+  userId          String        @map("user_id")
+  periodId        String        @map("period_id")
+  date            DateTime      @db.Date
+  kind            AbsenceKind
+  reason          String
+  status          AbsenceStatus @default(PENDING)
+  salaryDeduction Int           @default(0) @map("salary_deduction")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  reviewedAt      DateTime?     @map("reviewed_at")
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period          PayPeriod     @relation(fields: [periodId], references: [id], onDelete: Restrict)
 
   @@unique([userId, date])
   @@index([periodId, status])

@@ -45,9 +45,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           where: { id, status: "PENDING" },
           data: {
             status: parsed.data.status,
+            ...(parsed.data.status === "REJECTED" ? { salaryDeduction: 0 } : {}),
             reviewedAt: new Date(),
           },
-          select: { id: true, status: true },
+          select: { id: true, status: true, salaryDeduction: true },
         });
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },

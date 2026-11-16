@@ -33,7 +33,6 @@ export async function POST() {
           where: {
             userId: session.id,
             date,
-            status: { in: ["PENDING", "APPROVED"] },
           },
           select: { id: true },
         });
@@ -106,7 +105,10 @@ export async function POST() {
       return NextResponse.json({ error: "Kehadiran hari ini sudah tercatat." }, { status: 409 });
     }
     if (error instanceof Error && error.message === "ABSENCE_ALREADY_REPORTED") {
-      return NextResponse.json({ error: "Tanggal ini sudah memiliki laporan ketidakhadiran." }, { status: 409 });
+      return NextResponse.json(
+        { error: "Tanggal ini sudah memiliki laporan cuti atau potong gaji sehingga tidak dapat digunakan untuk absensi." },
+        { status: 409 },
+      );
     }
     if (error instanceof Error && error.message.startsWith("CYCLE_NOT_STARTED:")) {
       const startDate = error.message.slice("CYCLE_NOT_STARTED:".length);
@@ -115,7 +117,7 @@ export async function POST() {
     if (error instanceof Error && error.message.startsWith("UNEXPLAINED_ABSENCE:")) {
       const dateKey = error.message.slice("UNEXPLAINED_ABSENCE:".length);
       return NextResponse.json(
-        { error: `Jelaskan ketidakhadiran tanggal ${dateKey} dan tunggu persetujuan owner sebelum absen lagi.` },
+        { error: `Ajukan laporan cuti tak berbayar atau potong gaji untuk tanggal ${dateKey}, lalu tunggu persetujuan owner sebelum absen lagi.` },
         { status: 409 },
       );
     }

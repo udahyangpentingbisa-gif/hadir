@@ -11,13 +11,14 @@ export async function GET() {
 
   try {
     const reports = await prisma.absenceReport.findMany({
-      where: { status: "PENDING" },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         date: true,
         kind: true,
         reason: true,
+        status: true,
+        salaryDeduction: true,
         user: { select: { name: true, username: true } },
       },
     });
@@ -27,6 +28,8 @@ export async function GET() {
         date: report.date.toISOString(),
         kind: report.kind,
         reason: report.reason,
+        status: report.status,
+        salaryDeduction: report.salaryDeduction,
         employeeName: report.user.name,
         username: report.user.username,
       })),

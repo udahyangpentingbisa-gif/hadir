@@ -73,7 +73,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
           where: {
             userId: id,
             date,
-            status: { in: ["PENDING", "APPROVED"] },
           },
           select: { id: true },
         });
@@ -107,7 +106,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Karyawan tidak ditemukan." }, { status: 404 });
     }
     if (error instanceof Error && error.message === "ABSENCE_ALREADY_REPORTED") {
-      return NextResponse.json({ error: "Tanggal ini sudah memiliki laporan ketidakhadiran." }, { status: 409 });
+      return NextResponse.json(
+        { error: "Tanggal ini sudah memiliki laporan cuti atau potong gaji sehingga tidak dapat digunakan untuk absensi." },
+        { status: 409 },
+      );
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return NextResponse.json({ error: "Karyawan sudah memiliki absensi pada tanggal tersebut." }, { status: 409 });

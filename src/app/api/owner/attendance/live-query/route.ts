@@ -35,25 +35,52 @@ export async function GET() {
          SELECT id, employee_id
          FROM pay_periods
          WHERE is_active = TRUE
+       ),
+       attendance_totals AS (
+         SELECT
+           period_id,
+           user_id,
+           COUNT(*)::int AS attendance_count,
+           SUM(wage_earned)::int AS wage_total
+         FROM attendances
+         GROUP BY period_id, user_id
+       ),
+       deduction_totals AS (
+         SELECT
+           period_id,
+           user_id,
+           SUM(salary_deduction)::int AS deduction_total
+         FROM absence_reports
+         GROUP BY period_id, user_id
        )
        SELECT
          users.id,
          users.name,
          users.username,
          users.email,
-         COUNT(DISTINCT attendances.id)::int AS "attendanceCount",
-         COALESCE(SUM(attendances.wage_earned), 0)::int AS "wageTotal",
+         COALESCE(attendance_totals.attendance_count, 0)::int AS "attendanceCount",
+         GREATEST(
+           COALESCE(attendance_totals.wage_total, 0) - COALESCE(deduction_totals.deduction_total, 0),
+           0
+         )::int AS "wageTotal",
          COUNT(DISTINCT today_attendances.id)::int > 0 AS "attendedToday"
        FROM users
        LEFT JOIN active_periods ON active_periods.employee_id = users.id
-       LEFT JOIN attendances
-         ON attendances.user_id = users.id
-        AND attendances.period_id = active_periods.id
+       LEFT JOIN attendance_totals
+         ON attendance_totals.user_id = users.id
+        AND attendance_totals.period_id = active_periods.id
+       LEFT JOIN deduction_totals
+         ON deduction_totals.user_id = users.id
+        AND deduction_totals.period_id = active_periods.id
        LEFT JOIN attendances AS today_attendances
          ON today_attendances.user_id = users.id
         AND today_attendances.date = $1::date
        WHERE users.role = 'EMPLOYEE'
-       GROUP BY users.id
+       GROUP BY
+         users.id,
+         attendance_totals.attendance_count,
+         attendance_totals.wage_total,
+         deduction_totals.deduction_total
        ORDER BY users.name`,
       [jakartaDateKey()],
     );

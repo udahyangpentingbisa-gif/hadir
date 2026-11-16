@@ -26,6 +26,8 @@ type AbsenceReportRow = {
   date: string;
   kind: "LEAVE" | "EXPLANATION";
   reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  salaryDeduction: number;
   employeeName: string;
   username: string;
 };
@@ -68,6 +70,13 @@ export function OwnerDashboard({
   const [realtimeState, setRealtimeState] = useState<LiveQueryState["status"]>("connecting");
   const [realtimeError, setRealtimeError] = useState("");
   const [neonServices, setNeonServices] = useState<NeonServiceStatus | null>(null);
+
+  useEffect(() => {
+    setEmployees(initialEmployees);
+    setActiveCycleCount(initialActiveCycleCount);
+    setTotalWage(initialTotalWage);
+    setPresentToday(initialPresentToday);
+  }, [initialEmployees, initialActiveCycleCount, initialTotalWage, initialPresentToday]);
 
   useEffect(() => {
     const updateDashboard = async () => {
@@ -273,10 +282,27 @@ export function OwnerDashboard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Laporan ketidakhadiran gagal diperbarui.");
-      setAbsenceReports((reports) => reports.filter((item) => item.id !== report.id));
+      const result = (await response.json()) as {
+        error?: string;
+        report?: { id: string; status: "APPROVED" | "REJECTED"; salaryDeduction: number };
+      };
+      const updatedReport = result.report;
+      if (!response.ok || !updatedReport) {
+        throw new Error(result.error ?? "Laporan ketidakhadiran gagal diperbarui.");
+      }
+      setAbsenceReports((reports) =>
+        reports.map((item) =>
+          item.id === report.id
+            ? {
+                ...item,
+                status: updatedReport.status,
+                salaryDeduction: updatedReport.salaryDeduction,
+              }
+            : item,
+        ),
+      );
       setNotice(status === "APPROVED" ? "Laporan ketidakhadiran disetujui." : "Laporan ketidakhadiran ditolak.");
+      router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Laporan ketidakhadiran gagal diperbarui.");
     } finally {
@@ -411,24 +437,42 @@ export function OwnerDashboard({
 
       <section className="mt-7 overflow-hidden rounded-2xl border border-[#e6ece6] bg-white shadow-[0_3px_14px_rgba(27,53,40,0.03)]">
         <div className="border-b border-[#edf1ed] px-5 py-5 sm:px-6">
-          <h2 className="text-lg font-semibold">Laporan cuti dan ketidakhadiran</h2>
-          <p className="mt-1 text-sm text-[#7b8980]">{absenceReports.length} laporan menunggu persetujuan owner.</p>
+          <h2 className="text-lg font-semibold">Laporan cuti dan potong gaji</h2>
+          <p className="mt-1 text-sm text-[#7b8980]">
+            {absenceReports.length} laporan · {absenceReports.filter((report) => report.status === "PENDING").length} menunggu persetujuan.
+          </p>
         </div>
         <div className="divide-y divide-[#edf1ed]">
           {absenceReports.map((report) => (
             <div key={report.id} className="flex flex-col justify-between gap-4 px-5 py-4 sm:flex-row sm:items-center sm:px-6">
               <div>
                 <p className="text-sm font-semibold">{report.employeeName} <span className="font-normal text-[#89958d]">@{report.username}</span></p>
-                <p className="mt-1 text-xs text-[#718078]">{report.kind === "LEAVE" ? "Cuti/off (tidak dibayar)" : "Keterangan ketidakhadiran"} · {formatDate(report.date)}</p>
+                <p className="mt-1 text-xs text-[#718078]">{report.kind === "LEAVE" ? "Cuti/off (tidak dibayar)" : "Cuti tak berbayar / potong gaji"} · {formatDate(report.date)}</p>
                 <p className="mt-2 text-sm text-[#536258]">{report.reason}</p>
+                {report.salaryDeduction > 0 && (
+                  <p className="mt-1 text-xs font-medium text-red-700">Potongan gaji: {currency(report.salaryDeduction)}</p>
+                )}
               </div>
-              <div className="flex shrink-0 gap-2">
-                <button onClick={() => void reviewAbsence(report, "APPROVED")} disabled={busy} className="h-9 rounded-lg bg-[#15734c] px-3 text-xs font-semibold text-white disabled:opacity-50">Setujui</button>
-                <button onClick={() => void reviewAbsence(report, "REJECTED")} disabled={busy} className="h-9 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 disabled:opacity-50">Tolak</button>
+              <div className="flex shrink-0 items-center gap-2">
+                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                  report.status === "APPROVED"
+                    ? "bg-[#eaf5ee] text-[#15734c]"
+                    : report.status === "REJECTED"
+                      ? "bg-red-50 text-red-700"
+                      : "bg-amber-50 text-amber-700"
+                }`}>
+                  {report.status === "APPROVED" ? "Disetujui" : report.status === "REJECTED" ? "Ditolak" : "Menunggu"}
+                </span>
+                {report.status === "PENDING" && (
+                  <>
+                    <button onClick={() => void reviewAbsence(report, "APPROVED")} disabled={busy} className="h-9 rounded-lg bg-[#15734c] px-3 text-xs font-semibold text-white disabled:opacity-50">Setujui</button>
+                    <button onClick={() => void reviewAbsence(report, "REJECTED")} disabled={busy} className="h-9 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 disabled:opacity-50">Tolak</button>
+                  </>
+                )}
               </div>
             </div>
           ))}
-          {absenceReports.length === 0 && <p className="px-6 py-10 text-center text-sm text-[#89958d]">Belum ada laporan yang menunggu.</p>}
+          {absenceReports.length === 0 && <p className="px-6 py-10 text-center text-sm text-[#89958d]">Belum ada laporan cuti atau potong gaji.</p>}
         </div>
       </section>
 

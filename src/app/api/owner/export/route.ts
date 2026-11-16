@@ -31,12 +31,31 @@ export async function GET() {
           _sum: { wageEarned: true },
         })
       : [];
+    const deductions = periods.length
+      ? await prisma.absenceReport.groupBy({
+          by: ["userId"],
+          where: { periodId: { in: periods.map((period) => period.id) } },
+          _sum: { salaryDeduction: true },
+        })
+      : [];
     const wageByUser = new Map(records.map((record) => [record.userId, record._sum.wageEarned ?? 0]));
+    const deductionByUser = new Map(
+      deductions.map((record) => [record.userId, record._sum.salaryDeduction ?? 0]),
+    );
     const daysByUser = new Map(records.map((record) => [record.userId, record._count._all]));
     const lines = [
-      ["Nama", "Username", "Hari Hadir", "Total Gaji"].map(csvCell).join(","),
+      ["Nama", "Username", "Hari Hadir", "Potongan Gaji", "Total Gaji"].map(csvCell).join(","),
       ...employees.map((employee) =>
-        [employee.name, employee.username, daysByUser.get(employee.id) ?? 0, wageByUser.get(employee.id) ?? 0]
+        [
+          employee.name,
+          employee.username,
+          daysByUser.get(employee.id) ?? 0,
+          deductionByUser.get(employee.id) ?? 0,
+          Math.max(
+            0,
+            (wageByUser.get(employee.id) ?? 0) - (deductionByUser.get(employee.id) ?? 0),
+          ),
+        ]
           .map(csvCell)
           .join(","),
       ),

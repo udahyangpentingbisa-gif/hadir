@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { dateFromKey } from "@/lib/dates";
+import { DAILY_WAGE } from "@/lib/format";
 import { getOpenPayPeriod, isLeaveDay } from "@/lib/pay-periods";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
@@ -75,6 +76,7 @@ export async function POST(request: NextRequest) {
             date,
             kind: parsed.data.kind,
             reason: parsed.data.reason,
+            salaryDeduction: parsed.data.kind === "EXPLANATION" ? DAILY_WAGE : 0,
           },
           select: {
             id: true,
@@ -82,6 +84,7 @@ export async function POST(request: NextRequest) {
             kind: true,
             reason: true,
             status: true,
+            salaryDeduction: true,
             createdAt: true,
           },
         });

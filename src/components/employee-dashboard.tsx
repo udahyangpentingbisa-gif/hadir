@@ -13,6 +13,7 @@ type AbsenceReport = {
   kind: "LEAVE" | "EXPLANATION";
   reason: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
+  salaryDeduction: number;
 };
 type AttendanceResponse = {
   error?: string;
@@ -27,6 +28,7 @@ export function EmployeeDashboard({
   initialCount,
   initialWage,
   initialAttendedToday,
+  initialAbsenceReportedToday,
   initialHistory,
   initialAbsenceReports,
   periodName,
@@ -34,6 +36,7 @@ export function EmployeeDashboard({
   initialCount: number;
   initialWage: number;
   initialAttendedToday: boolean;
+  initialAbsenceReportedToday: boolean;
   initialHistory: HistoryItem[];
   initialAbsenceReports: AbsenceReport[];
   periodName: string | null;
@@ -42,6 +45,7 @@ export function EmployeeDashboard({
   const [count, setCount] = useState(initialCount);
   const [wage, setWage] = useState(initialWage);
   const [attendedToday, setAttendedToday] = useState(initialAttendedToday);
+  const [absenceReportedToday, setAbsenceReportedToday] = useState(initialAbsenceReportedToday);
   const [history, setHistory] = useState(initialHistory);
   const [absenceReports, setAbsenceReports] = useState(initialAbsenceReports);
   const [absenceDate, setAbsenceDate] = useState("");
@@ -62,6 +66,7 @@ export function EmployeeDashboard({
       if (currentDate !== activeDate) {
         activeDate = currentDate;
         setAttendedToday(false);
+        setAbsenceReportedToday(false);
         setNotice("");
         setError("");
         router.refresh();
@@ -77,6 +82,14 @@ export function EmployeeDashboard({
   useEffect(() => {
     setAbsenceReports(initialAbsenceReports);
   }, [initialAbsenceReports]);
+
+  useEffect(() => {
+    setWage(initialWage);
+  }, [initialWage]);
+
+  useEffect(() => {
+    setAbsenceReportedToday(initialAbsenceReportedToday);
+  }, [initialAbsenceReportedToday]);
 
   async function attend() {
     if (!window.confirm("Catat kehadiran untuk hari ini? Absensi hanya dapat dilakukan satu kali sehari.")) return;
@@ -133,9 +146,12 @@ export function EmployeeDashboard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: absenceDate, kind: absenceKind, reason: absenceReason }),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Laporan ketidakhadiran gagal dikirim.");
-      setAbsenceReports((items) => [result.report, ...items].slice(0, 10));
+      const result = (await response.json()) as { error?: string; report?: AbsenceReport };
+      const report = result.report;
+      if (!response.ok || !report) throw new Error(result.error ?? "Laporan ketidakhadiran gagal dikirim.");
+      setAbsenceReports((items) => [report, ...items].slice(0, 10));
+      setWage((current) => Math.max(0, current - report.salaryDeduction));
+      if (absenceDate === jakartaDateKey()) setAbsenceReportedToday(true);
       setAbsenceDate("");
       setAbsenceReason("");
       setAbsenceNotice("Laporan terkirim dan menunggu persetujuan owner.");
@@ -159,7 +175,7 @@ export function EmployeeDashboard({
           <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#edf1ed]"><div className="h-full rounded-full bg-[#2ba36c] transition-all duration-500" style={{ width: `${Math.min(count / 15 * 100, 100)}%` }} /></div>
           <div className="mt-6 flex items-start gap-3 rounded-xl bg-[#f6f8f6] p-4 text-sm text-[#637168]">
             <CircleCheck size={17} className="mt-0.5 shrink-0 text-[#15734c]" />
-            <p>{complete ? "Siklus 15 kehadiran selesai. Siklus baru berjalan otomatis." : attendedToday ? "Kehadiran hari ini sudah tercatat. Kembali besok untuk absen lagi." : "Absen satu kali pada setiap hari kerja untuk menambah saldo gajimu."}</p>
+            <p>{complete ? "Siklus 15 kehadiran selesai. Siklus baru berjalan otomatis." : attendedToday ? "Kehadiran hari ini sudah tercatat. Kembali besok untuk absen lagi." : absenceReportedToday ? "Hari ini sudah memiliki laporan cuti atau potong gaji, jadi tidak dapat digunakan untuk absensi." : "Absen satu kali pada setiap hari kerja untuk menambah saldo gajimu."}</p>
           </div>
         </article>
 
@@ -168,11 +184,11 @@ export function EmployeeDashboard({
           <p className="mt-4 text-xs leading-5 text-[#89958d]">Rp 50.000 untuk setiap kehadiran · maksimal Rp 1.500.000 per siklus.</p>
           <button
             onClick={attend}
-            disabled={busy || attendedToday || complete || !periodName}
+            disabled={busy || attendedToday || absenceReportedToday || complete || !periodName}
             className="mt-7 inline-flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-[#15734c] text-base font-semibold text-white shadow-[0_8px_18px_rgba(21,115,76,0.17)] transition hover:bg-[#105d3d] disabled:cursor-not-allowed disabled:bg-[#dce5de] disabled:text-[#7b8980] disabled:shadow-none"
           >
-            {busy ? <LoaderCircle size={19} className="animate-spin" /> : attendedToday || complete ? <Check size={19} /> : <CircleCheck size={19} />}
-            {!periodName ? "Belum ada siklus aktif" : complete ? "Siklus 15 Kehadiran Selesai" : attendedToday ? "Sudah Absen Hari Ini" : busy ? "Mencatat kehadiran..." : "Absen Hadir Hari Ini"}
+            {busy ? <LoaderCircle size={19} className="animate-spin" /> : attendedToday || absenceReportedToday || complete ? <Check size={19} /> : <CircleCheck size={19} />}
+            {!periodName ? "Belum ada siklus aktif" : complete ? "Siklus 15 Kehadiran Selesai" : attendedToday ? "Sudah Absen Hari Ini" : absenceReportedToday ? "Ada Laporan untuk Hari Ini" : busy ? "Mencatat kehadiran..." : "Absen Hadir Hari Ini"}
           </button>
           {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
           {notice && <p role="status" className="mt-3 text-sm text-[#15734c]">{notice}</p>}
@@ -181,10 +197,10 @@ export function EmployeeDashboard({
 
       <section className="mt-6 grid gap-5 rounded-2xl border border-[#e6ece6] bg-white p-5 sm:grid-cols-[1fr_0.9fr] sm:p-6">
         <div>
-          <h2 className="font-semibold">Cuti atau keterangan tidak hadir</h2>
+          <h2 className="font-semibold">Cuti atau potong gaji</h2>
           <p className="mt-1 text-sm leading-6 text-[#718078]">
             Ajukan satu cuti/off tanpa upah per siklus, hanya untuk Senin–Kamis. Jumat–Minggu tetap hari kerja.
-            Jika tidak mengisi absensi, kirim keterangan agar owner dapat meninjaunya.
+            Jika tidak masuk pada tanggal lain, ajukan potong gaji agar owner dapat meninjaunya.
           </p>
           <form onSubmit={submitAbsence} className="mt-4 space-y-3">
             <label className="block">
@@ -195,7 +211,7 @@ export function EmployeeDashboard({
                 className="h-11 w-full rounded-xl border border-[#e1e8e2] bg-white px-3 text-sm outline-none focus:border-[#15734c]"
               >
                 <option value="LEAVE">Ajukan cuti/off (tidak dibayar)</option>
-                <option value="EXPLANATION">Jelaskan ketidakhadiran</option>
+                <option value="EXPLANATION">Cuti tak berbayar / potong gaji</option>
               </select>
             </label>
             <label className="block">
@@ -242,7 +258,10 @@ export function EmployeeDashboard({
                     {report.status === "APPROVED" ? "Disetujui" : report.status === "REJECTED" ? "Ditolak" : "Menunggu"}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-[#718078]">{report.kind === "LEAVE" ? "Cuti/off" : "Keterangan"} · {report.reason}</p>
+                <p className="mt-1 text-xs text-[#718078]">{report.kind === "LEAVE" ? "Cuti/off" : "Potong gaji"} · {report.reason}</p>
+                {report.salaryDeduction > 0 && (
+                  <p className="mt-1 text-xs font-medium text-red-700">Potongan gaji: {currency(report.salaryDeduction)}</p>
+                )}
               </div>
             )) : <p className="px-4 py-8 text-center text-sm text-[#89958d]">Belum ada laporan.</p>}
           </div>

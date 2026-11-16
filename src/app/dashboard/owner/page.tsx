@@ -18,6 +18,8 @@ export default async function OwnerPage() {
           date: string;
           kind: "LEAVE" | "EXPLANATION";
           reason: string;
+          status: "PENDING" | "APPROVED" | "REJECTED";
+          salaryDeduction: number;
           employeeName: string;
           username: string;
         }[];
@@ -55,21 +57,38 @@ export default async function OwnerPage() {
           _sum: { wageEarned: true },
         })
       : [];
+    const deductions = periodIds.length
+      ? await prisma.absenceReport.groupBy({
+          by: ["userId"],
+          where: { periodId: { in: periodIds } },
+          _sum: { salaryDeduction: true },
+        })
+      : [];
+    const deductionByUser = new Map(
+      deductions.map((row) => [row.userId, row._sum.salaryDeduction ?? 0]),
+    );
     const absenceReports = await prisma.absenceReport.findMany({
-      where: { status: "PENDING" },
-      orderBy: { createdAt: "asc" },
+      orderBy: { createdAt: "desc" },
       select: {
         id: true,
         date: true,
         kind: true,
         reason: true,
+        status: true,
+        salaryDeduction: true,
         user: { select: { name: true, username: true } },
       },
     });
     const byUser = new Map(
       aggregate.map((row) => [
         row.userId,
-        { count: row._count._all, wage: row._sum.wageEarned ?? 0 },
+        {
+          count: row._count._all,
+          wage: Math.max(
+            0,
+            (row._sum.wageEarned ?? 0) - (deductionByUser.get(row.userId) ?? 0),
+          ),
+        },
       ]),
     );
     const employees = users.map((user) => ({
@@ -85,11 +104,13 @@ export default async function OwnerPage() {
         date: report.date.toISOString(),
         kind: report.kind,
         reason: report.reason,
+        status: report.status,
+        salaryDeduction: report.salaryDeduction,
         employeeName: report.user.name,
         username: report.user.username,
       })),
       presentToday: new Set(presentToday.map((item) => item.userId)).size,
-      totalWage: aggregate.reduce((sum, row) => sum + (row._sum.wageEarned ?? 0), 0),
+      totalWage: employees.reduce((sum, employee) => sum + employee.wageTotal, 0),
     };
   } catch (error) {
     console.error("Gagal memuat halaman dashboard owner:", error);

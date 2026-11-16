@@ -13,6 +13,7 @@ export default async function EmployeePage() {
     count: number;
     wage: number;
     attendedToday: boolean;
+    absenceReportedToday: boolean;
     history: { date: string; attendedAt: string; wage: number }[];
     absenceReports: {
       id: string;
@@ -20,6 +21,7 @@ export default async function EmployeePage() {
       kind: "LEAVE" | "EXPLANATION";
       reason: string;
       status: "PENDING" | "APPROVED" | "REJECTED";
+      salaryDeduction: number;
     }[];
     periodName: string | null;
     periodId: string | null;
@@ -32,7 +34,7 @@ export default async function EmployeePage() {
       orderBy: { startDate: "desc" },
     });
     const today = dateFromKey(jakartaDateKey());
-    const [count, records, attendedToday, absenceReports] = period
+    const [count, records, attendedToday, absenceReportedToday, attendanceTotals, deductionTotals, absenceReports] = period
       ? await Promise.all([
           prisma.attendance.count({ where: { userId: session!.id, periodId: period.id } }),
           prisma.attendance.findMany({
@@ -45,18 +47,34 @@ export default async function EmployeePage() {
             where: { userId_date: { userId: session!.id, date: today } },
             select: { id: true },
           }),
+          prisma.absenceReport.findUnique({
+            where: { userId_date: { userId: session!.id, date: today } },
+            select: { id: true },
+          }),
+          prisma.attendance.aggregate({
+            where: { userId: session!.id, periodId: period.id },
+            _sum: { wageEarned: true },
+          }),
+          prisma.absenceReport.aggregate({
+            where: { userId: session!.id, periodId: period.id },
+            _sum: { salaryDeduction: true },
+          }),
           prisma.absenceReport.findMany({
             where: { userId: session!.id, periodId: period.id },
             orderBy: [{ date: "desc" }, { createdAt: "desc" }],
             take: 10,
-            select: { id: true, date: true, kind: true, reason: true, status: true },
+            select: { id: true, date: true, kind: true, reason: true, status: true, salaryDeduction: true },
           }),
         ])
-      : [0, [], null, []];
+      : [0, [], null, null, null, null, []];
     dashboardData = {
       count,
-      wage: records.reduce((sum, record) => sum + record.wageEarned, 0),
+      wage: Math.max(
+        0,
+        (attendanceTotals?._sum.wageEarned ?? 0) - (deductionTotals?._sum.salaryDeduction ?? 0),
+      ),
       attendedToday: Boolean(attendedToday),
+      absenceReportedToday: Boolean(absenceReportedToday),
       history: records.map((record) => ({
         date: record.date.toISOString(),
         attendedAt: record.createdAt.toISOString(),
@@ -99,6 +117,7 @@ export default async function EmployeePage() {
             initialCount={dashboardData.count}
             initialWage={dashboardData.wage}
             initialAttendedToday={dashboardData.attendedToday}
+            initialAbsenceReportedToday={dashboardData.absenceReportedToday}
             initialHistory={dashboardData.history}
             initialAbsenceReports={dashboardData.absenceReports}
             periodName={dashboardData.periodName}
