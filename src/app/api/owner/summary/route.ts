@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { dateFromKey, jakartaDateKey } from "@/lib/dates";
 import { DAILY_WAGE, PERIOD_ATTENDANCE_LIMIT } from "@/lib/format";
+import { calculateNetWage } from "@/lib/payroll";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 
@@ -44,8 +45,18 @@ export async function GET() {
           _sum: { salaryDeduction: true },
         })
       : [];
+    const approvedLoans = activePeriodIds.length
+      ? await prisma.loan.groupBy({
+          by: ["userId"],
+          where: { periodId: { in: activePeriodIds }, status: "APPROVED" },
+          _sum: { amount: true },
+        })
+      : [];
     const deductionByUser = new Map(
       deductions.map((item) => [item.userId, item._sum.salaryDeduction ?? 0]),
+    );
+    const loanDeductionByUser = new Map(
+      approvedLoans.map((item) => [item.userId, item._sum.amount ?? 0]),
     );
 
     const byUser = new Map(
@@ -53,9 +64,10 @@ export async function GET() {
         item.userId,
         {
           count: item._count._all,
-          wage: Math.max(
-            0,
-            (item._sum.wageEarned ?? 0) - (deductionByUser.get(item.userId) ?? 0),
+          wage: calculateNetWage(
+            item._sum.wageEarned ?? 0,
+            deductionByUser.get(item.userId) ?? 0,
+            loanDeductionByUser.get(item.userId) ?? 0,
           ),
         },
       ]),
@@ -64,6 +76,7 @@ export async function GET() {
       ...employee,
       createdAt: employee.createdAt.toISOString(),
       attendanceCount: byUser.get(employee.id)?.count ?? 0,
+      loanDeduction: loanDeductionByUser.get(employee.id) ?? 0,
       wageTotal: byUser.get(employee.id)?.wage ?? 0,
     }));
     return NextResponse.json({

@@ -91,7 +91,7 @@ export function OwnerLoans({ initialLoans }: { initialLoans: OwnerLoanRow[] }) {
       </div>
 
       <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-        Persetujuan dan pencairan ditangani owner di luar aplikasi. Tandai lunas setelah pengembalian diterima.
+        Pinjaman yang disetujui mengurangi gaji bersih pada siklus terkait. Persetujuan dan pencairan dilakukan di luar aplikasi; tandai lunas setelah pengembalian diterima agar potongan berhenti.
       </div>
       {(error || notice) && (
         <div

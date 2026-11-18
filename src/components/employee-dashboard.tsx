@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import { Banknote, Check, CircleCheck, Clock3, LoaderCircle, LockKeyhole, Send, WalletCards } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { calculateNetWage } from "@/lib/payroll";
 
 type HistoryItem = { date: string; attendedAt: string; wage: number };
 type AbsenceReport = {
@@ -26,7 +27,9 @@ type AttendanceResponse = {
 
 export function EmployeeDashboard({
   initialCount,
-  initialWage,
+  initialGrossWage,
+  initialAbsenceDeduction,
+  initialLoanDeduction,
   initialAttendedToday,
   initialAbsenceReportedToday,
   initialHistory,
@@ -34,7 +37,9 @@ export function EmployeeDashboard({
   periodName,
 }: {
   initialCount: number;
-  initialWage: number;
+  initialGrossWage: number;
+  initialAbsenceDeduction: number;
+  initialLoanDeduction: number;
   initialAttendedToday: boolean;
   initialAbsenceReportedToday: boolean;
   initialHistory: HistoryItem[];
@@ -43,7 +48,10 @@ export function EmployeeDashboard({
 }) {
   const router = useRouter();
   const [count, setCount] = useState(initialCount);
-  const [wage, setWage] = useState(initialWage);
+  const [grossWage, setGrossWage] = useState(initialGrossWage);
+  const [absenceDeduction, setAbsenceDeduction] = useState(initialAbsenceDeduction);
+  const [loanDeduction, setLoanDeduction] = useState(initialLoanDeduction);
+  const wage = calculateNetWage(grossWage, absenceDeduction, loanDeduction);
   const [attendedToday, setAttendedToday] = useState(initialAttendedToday);
   const [absenceReportedToday, setAbsenceReportedToday] = useState(initialAbsenceReportedToday);
   const [history, setHistory] = useState(initialHistory);
@@ -84,8 +92,10 @@ export function EmployeeDashboard({
   }, [initialAbsenceReports]);
 
   useEffect(() => {
-    setWage(initialWage);
-  }, [initialWage]);
+    setGrossWage(initialGrossWage);
+    setAbsenceDeduction(initialAbsenceDeduction);
+    setLoanDeduction(initialLoanDeduction);
+  }, [initialGrossWage, initialAbsenceDeduction, initialLoanDeduction]);
 
   useEffect(() => {
     setAbsenceReportedToday(initialAbsenceReportedToday);
@@ -116,7 +126,7 @@ export function EmployeeDashboard({
         throw new Error("Data waktu absensi dari server tidak valid. Muat ulang halaman dan coba lagi.");
       }
       setCount(attendanceCount);
-      setWage((current) => current + wageEarned);
+      setGrossWage((current) => current + wageEarned);
       setAttendedToday(true);
       setHistory((items) => [
         {
@@ -150,7 +160,7 @@ export function EmployeeDashboard({
       const report = result.report;
       if (!response.ok || !report) throw new Error(result.error ?? "Laporan ketidakhadiran gagal dikirim.");
       setAbsenceReports((items) => [report, ...items].slice(0, 10));
-      setWage((current) => Math.max(0, current - report.salaryDeduction));
+      setAbsenceDeduction((current) => current + report.salaryDeduction);
       if (absenceDate === jakartaDateKey()) setAbsenceReportedToday(true);
       setAbsenceDate("");
       setAbsenceReason("");
@@ -180,8 +190,11 @@ export function EmployeeDashboard({
         </article>
 
         <article className="flex flex-col justify-between rounded-2xl border border-[#e6ece6] bg-white p-6 shadow-[0_3px_14px_rgba(27,53,40,0.03)] sm:p-8">
-          <div className="flex items-start justify-between"><div><p className="text-sm font-medium text-[#718078]">Total gaji sementara</p><p className="mt-3 text-[32px] font-semibold tracking-tight text-[#123e2d]">{currency(wage)}</p></div><span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#eff7f1] text-[#15734c]"><WalletCards size={21} /></span></div>
-          <p className="mt-4 text-xs leading-5 text-[#89958d]">Rp 50.000 untuk setiap kehadiran · maksimal Rp 1.500.000 per siklus.</p>
+          <div className="flex items-start justify-between"><div><p className="text-sm font-medium text-[#718078]">Estimasi gaji bersih</p><p className="mt-3 text-[32px] font-semibold tracking-tight text-[#123e2d]">{currency(wage)}</p></div><span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#eff7f1] text-[#15734c]"><WalletCards size={21} /></span></div>
+          <p className="mt-4 text-xs leading-5 text-[#89958d]">
+            Rp 50.000 untuk setiap kehadiran · maksimal Rp 1.500.000 per siklus.
+            Potongan ketidakhadiran {currency(absenceDeduction)} · pinjaman disetujui {currency(loanDeduction)}.
+          </p>
           <button
             onClick={attend}
             disabled={busy || attendedToday || absenceReportedToday || complete || !periodName}

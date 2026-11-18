@@ -38,36 +38,6 @@ export async function POST() {
         });
         if (scheduledAbsence) throw new Error("ABSENCE_ALREADY_REPORTED");
 
-        const [earlierAttendance, earlierAbsences] = await Promise.all([
-          tx.attendance.findMany({
-            where: {
-              userId: session.id,
-              periodId: period.id,
-              date: { gte: period.startDate, lt: date },
-            },
-            select: { date: true },
-          }),
-          tx.absenceReport.findMany({
-            where: {
-              userId: session.id,
-              periodId: period.id,
-              date: { gte: period.startDate, lt: date },
-              status: "APPROVED",
-            },
-            select: { date: true },
-          }),
-        ]);
-        const explainedDates = new Set(
-          [...earlierAttendance, ...earlierAbsences].map((record) =>
-            record.date.toISOString().slice(0, 10),
-          ),
-        );
-        for (const cursor = new Date(period.startDate); cursor < date; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-          if (!explainedDates.has(cursor.toISOString().slice(0, 10))) {
-            throw new Error(`UNEXPLAINED_ABSENCE:${cursor.toISOString().slice(0, 10)}`);
-          }
-        }
-
         const attendance = await tx.attendance.create({
           data: {
             userId: session.id,
@@ -113,13 +83,6 @@ export async function POST() {
     if (error instanceof Error && error.message.startsWith("CYCLE_NOT_STARTED:")) {
       const startDate = error.message.slice("CYCLE_NOT_STARTED:".length);
       return NextResponse.json({ error: `Siklus aktif baru dimulai pada ${startDate}.` }, { status: 409 });
-    }
-    if (error instanceof Error && error.message.startsWith("UNEXPLAINED_ABSENCE:")) {
-      const dateKey = error.message.slice("UNEXPLAINED_ABSENCE:".length);
-      return NextResponse.json(
-        { error: `Ajukan laporan cuti tak berbayar atau potong gaji untuk tanggal ${dateKey}, lalu tunggu persetujuan owner sebelum absen lagi.` },
-        { status: 409 },
-      );
     }
     if (error instanceof Error && error.message === "PERIOD_ATTENDANCE_INCONSISTENT") {
       console.error("Periode karyawan penuh tanpa catatan absensi.");

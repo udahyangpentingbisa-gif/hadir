@@ -136,7 +136,7 @@ export function EmployeeLoanPage({
         {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
         {notice && <p role="status" className="mt-3 text-sm text-[#15734c]">{notice}</p>}
         <p className="mt-4 text-xs leading-5 text-[#89958d]">
-          Pengajuan perlu disetujui owner. Pengembalian mengikuti kesepakatan dengan owner; sistem tidak memproses transfer otomatis.
+          Pengajuan perlu disetujui owner. Jika disetujui, nominal pinjaman mengurangi gaji bersih pada siklus ini. Pengembalian mengikuti kesepakatan di luar aplikasi; owner menandai pinjaman lunas setelah pengembalian.
         </p>
       </section>
 

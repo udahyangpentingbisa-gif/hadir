@@ -9,6 +9,7 @@ type LiveEmployeeRow = {
   username: string;
   email: string | null;
   attendanceCount: number;
+  loanDeduction: number;
   wageTotal: number;
   attendedToday: boolean;
 };
@@ -52,6 +53,15 @@ export async function GET() {
            SUM(salary_deduction)::int AS deduction_total
          FROM absence_reports
          GROUP BY period_id, user_id
+       ),
+       loan_totals AS (
+         SELECT
+           period_id,
+           user_id,
+           SUM(amount)::int AS loan_total
+         FROM loans
+         WHERE status = 'APPROVED'
+         GROUP BY period_id, user_id
        )
        SELECT
          users.id,
@@ -59,8 +69,11 @@ export async function GET() {
          users.username,
          users.email,
          COALESCE(attendance_totals.attendance_count, 0)::int AS "attendanceCount",
+         COALESCE(loan_totals.loan_total, 0)::int AS "loanDeduction",
          GREATEST(
-           COALESCE(attendance_totals.wage_total, 0) - COALESCE(deduction_totals.deduction_total, 0),
+           COALESCE(attendance_totals.wage_total, 0)
+             - COALESCE(deduction_totals.deduction_total, 0)
+             - COALESCE(loan_totals.loan_total, 0),
            0
          )::int AS "wageTotal",
          COUNT(DISTINCT today_attendances.id)::int > 0 AS "attendedToday"
@@ -72,6 +85,9 @@ export async function GET() {
        LEFT JOIN deduction_totals
          ON deduction_totals.user_id = users.id
         AND deduction_totals.period_id = active_periods.id
+       LEFT JOIN loan_totals
+         ON loan_totals.user_id = users.id
+        AND loan_totals.period_id = active_periods.id
        LEFT JOIN attendances AS today_attendances
          ON today_attendances.user_id = users.id
         AND today_attendances.date = $1::date
@@ -80,7 +96,8 @@ export async function GET() {
          users.id,
          attendance_totals.attendance_count,
          attendance_totals.wage_total,
-         deduction_totals.deduction_total
+         deduction_totals.deduction_total,
+         loan_totals.loan_total
        ORDER BY users.name`,
       [jakartaDateKey()],
     );

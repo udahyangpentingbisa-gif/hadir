@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { calculateNetWage } from "@/lib/payroll";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 
@@ -38,22 +39,34 @@ export async function GET() {
           _sum: { salaryDeduction: true },
         })
       : [];
+    const approvedLoans = periods.length
+      ? await prisma.loan.groupBy({
+          by: ["userId"],
+          where: { periodId: { in: periods.map((period) => period.id) }, status: "APPROVED" },
+          _sum: { amount: true },
+        })
+      : [];
     const wageByUser = new Map(records.map((record) => [record.userId, record._sum.wageEarned ?? 0]));
     const deductionByUser = new Map(
       deductions.map((record) => [record.userId, record._sum.salaryDeduction ?? 0]),
     );
+    const loanDeductionByUser = new Map(
+      approvedLoans.map((record) => [record.userId, record._sum.amount ?? 0]),
+    );
     const daysByUser = new Map(records.map((record) => [record.userId, record._count._all]));
     const lines = [
-      ["Nama", "Username", "Hari Hadir", "Potongan Gaji", "Total Gaji"].map(csvCell).join(","),
+      ["Nama", "Username", "Hari Hadir", "Potongan Gaji", "Potongan Pinjaman", "Total Gaji Bersih"].map(csvCell).join(","),
       ...employees.map((employee) =>
         [
           employee.name,
           employee.username,
           daysByUser.get(employee.id) ?? 0,
           deductionByUser.get(employee.id) ?? 0,
-          Math.max(
-            0,
-            (wageByUser.get(employee.id) ?? 0) - (deductionByUser.get(employee.id) ?? 0),
+          loanDeductionByUser.get(employee.id) ?? 0,
+          calculateNetWage(
+            wageByUser.get(employee.id) ?? 0,
+            deductionByUser.get(employee.id) ?? 0,
+            loanDeductionByUser.get(employee.id) ?? 0,
           ),
         ]
           .map(csvCell)

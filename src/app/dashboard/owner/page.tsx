@@ -2,6 +2,7 @@ import { AlertCircle, ArrowUpRight, Banknote, CalendarDays, Download, UsersRound
 import { AppHeader } from "@/components/app-header";
 import { OwnerDashboard, type EmployeeRow } from "@/components/owner-dashboard";
 import { dateFromKey, jakartaDateKey } from "@/lib/dates";
+import { calculateNetWage } from "@/lib/payroll";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 
@@ -64,8 +65,18 @@ export default async function OwnerPage() {
           _sum: { salaryDeduction: true },
         })
       : [];
+    const approvedLoans = periodIds.length
+      ? await prisma.loan.groupBy({
+          by: ["userId"],
+          where: { periodId: { in: periodIds }, status: "APPROVED" },
+          _sum: { amount: true },
+        })
+      : [];
     const deductionByUser = new Map(
       deductions.map((row) => [row.userId, row._sum.salaryDeduction ?? 0]),
+    );
+    const loanDeductionByUser = new Map(
+      approvedLoans.map((row) => [row.userId, row._sum.amount ?? 0]),
     );
     const absenceReports = await prisma.absenceReport.findMany({
       orderBy: { createdAt: "desc" },
@@ -84,9 +95,10 @@ export default async function OwnerPage() {
         row.userId,
         {
           count: row._count._all,
-          wage: Math.max(
-            0,
-            (row._sum.wageEarned ?? 0) - (deductionByUser.get(row.userId) ?? 0),
+          wage: calculateNetWage(
+            row._sum.wageEarned ?? 0,
+            deductionByUser.get(row.userId) ?? 0,
+            loanDeductionByUser.get(row.userId) ?? 0,
           ),
         },
       ]),
@@ -94,6 +106,7 @@ export default async function OwnerPage() {
     const employees = users.map((user) => ({
       ...user,
       attendanceCount: byUser.get(user.id)?.count ?? 0,
+      loanDeduction: loanDeductionByUser.get(user.id) ?? 0,
       wageTotal: byUser.get(user.id)?.wage ?? 0,
     }));
     data = {
@@ -149,7 +162,7 @@ export default async function OwnerPage() {
             <section className="mt-8 grid gap-4 sm:grid-cols-3">
               <StatCard label="Total karyawan" value={String(data.employees.length)} note="Akun karyawan aktif" icon={<UsersRound size={19} />} />
               <StatCard label="Hadir hari ini" value={`${data.presentToday} / ${data.employees.length}`} note="Diperbarui saat halaman dimuat" icon={<span className="h-2.5 w-2.5 rounded-full bg-[#1da56b]" />} />
-              <StatCard label="Estimasi gaji siklus aktif" value={formatCurrency(data.totalWage)} note="Dihitung terpisah untuk setiap karyawan" icon={<ArrowUpRight size={19} />} />
+              <StatCard label="Estimasi gaji bersih siklus aktif" value={formatCurrency(data.totalWage)} note="Setelah potongan ketidakhadiran dan pinjaman disetujui" icon={<ArrowUpRight size={19} />} />
             </section>
             <OwnerDashboard
               initialEmployees={data.employees}

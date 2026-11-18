@@ -17,6 +17,7 @@ export type EmployeeRow = {
   username: string;
   email: string | null;
   attendanceCount: number;
+  loanDeduction: number;
   wageTotal: number;
 };
 
@@ -158,6 +159,7 @@ export function OwnerDashboard({
             username: row.username,
             email: row.email,
             attendanceCount: row.attendanceCount,
+            loanDeduction: row.loanDeduction,
             wageTotal: row.wageTotal,
           }));
           setEmployees(rows);
@@ -434,7 +436,7 @@ export function OwnerDashboard({
         <div className="flex flex-col justify-between gap-4 border-b border-[#edf1ed] px-5 py-5 sm:flex-row sm:items-center sm:px-6">
           <div>
             <h2 className="text-lg font-semibold">Manajemen karyawan</h2>
-            <p className="mt-1 text-sm text-[#7b8980]">{employees.length} akun terdaftar · {presentToday} hadir hari ini · Gaji siklus aktif {currency(totalWage)}</p>
+            <p className="mt-1 text-sm text-[#7b8980]">{employees.length} akun terdaftar · {presentToday} hadir hari ini · Gaji bersih siklus aktif {currency(totalWage)}</p>
           </div>
           <button onClick={() => { setSelected(null); setModal("add"); setError(""); }} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#15734c] px-4 text-sm font-semibold text-white transition hover:bg-[#105d3d]">
             <CirclePlus size={17} /> Tambah karyawan
@@ -447,9 +449,9 @@ export function OwnerDashboard({
           </div>
         )}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px] text-left">
+          <table className="w-full min-w-[850px] text-left">
             <thead className="bg-[#fafcfa] text-[11px] font-semibold uppercase tracking-[0.12em] text-[#89958d]">
-              <tr><th className="px-6 py-3.5">Karyawan</th><th className="px-4 py-3.5">Kehadiran</th><th className="px-4 py-3.5">Gaji siklus</th><th className="px-6 py-3.5 text-right">Aksi</th></tr>
+              <tr><th className="px-6 py-3.5">Karyawan</th><th className="px-4 py-3.5">Kehadiran</th><th className="px-4 py-3.5">Potongan pinjaman</th><th className="px-4 py-3.5">Gaji bersih siklus</th><th className="px-6 py-3.5 text-right">Aksi</th></tr>
             </thead>
             <tbody className="divide-y divide-[#edf1ed]">
               {employees.map((employee) => (
@@ -461,6 +463,7 @@ export function OwnerDashboard({
                     </div>
                   </td>
                   <td className="px-4 py-4"><div className="text-sm font-semibold">{employee.attendanceCount} <span className="font-normal text-[#89958d]">/ 15 Hadir</span></div><div className="mt-2 h-1.5 w-28 overflow-hidden rounded-full bg-[#edf1ed]"><div className="h-full rounded-full bg-[#2ba36c]" style={{ width: `${Math.min(employee.attendanceCount / 15 * 100, 100)}%` }} /></div></td>
+                  <td className="px-4 py-4 text-sm text-red-700">{currency(employee.loanDeduction)}</td>
                   <td className="px-4 py-4 text-sm font-semibold">{currency(employee.wageTotal)}</td>
                   <td className="px-6 py-4"><div className="flex justify-end gap-1">
                     <button onClick={() => openEdit(employee)} aria-label={`Edit ${employee.name}`} className="grid h-9 w-9 place-items-center rounded-lg text-[#637168] transition hover:bg-[#eff7f1] hover:text-[#15734c]"><Pencil size={16} /></button>
@@ -470,7 +473,7 @@ export function OwnerDashboard({
                   </div></td>
                 </tr>
               ))}
-              {employees.length === 0 && <tr><td colSpan={4} className="px-6 py-14 text-center"><UsersRound size={24} className="mx-auto text-[#a6b2a9]" /><p className="mt-3 text-sm font-medium">Belum ada karyawan</p><p className="mt-1 text-xs text-[#89958d]">Tambahkan akun untuk mulai mencatat kehadiran.</p></td></tr>}
+              {employees.length === 0 && <tr><td colSpan={5} className="px-6 py-14 text-center"><UsersRound size={24} className="mx-auto text-[#a6b2a9]" /><p className="mt-3 text-sm font-medium">Belum ada karyawan</p><p className="mt-1 text-xs text-[#89958d]">Tambahkan akun untuk mulai mencatat kehadiran.</p></td></tr>}
             </tbody>
           </table>
         </div>

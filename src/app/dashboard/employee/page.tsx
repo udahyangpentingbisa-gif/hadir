@@ -11,7 +11,9 @@ export default async function EmployeePage() {
   const session = await getSession();
   let dashboardData: {
     count: number;
-    wage: number;
+    grossWage: number;
+    absenceDeduction: number;
+    loanDeduction: number;
     attendedToday: boolean;
     absenceReportedToday: boolean;
     history: { date: string; attendedAt: string; wage: number }[];
@@ -34,7 +36,7 @@ export default async function EmployeePage() {
       orderBy: { startDate: "desc" },
     });
     const today = dateFromKey(jakartaDateKey());
-    const [count, records, attendedToday, absenceReportedToday, attendanceTotals, deductionTotals, absenceReports] = period
+    const [count, records, attendedToday, absenceReportedToday, attendanceTotals, deductionTotals, loanTotals, absenceReports] = period
       ? await Promise.all([
           prisma.attendance.count({ where: { userId: session!.id, periodId: period.id } }),
           prisma.attendance.findMany({
@@ -59,6 +61,10 @@ export default async function EmployeePage() {
             where: { userId: session!.id, periodId: period.id },
             _sum: { salaryDeduction: true },
           }),
+          prisma.loan.aggregate({
+            where: { userId: session!.id, periodId: period.id, status: "APPROVED" },
+            _sum: { amount: true },
+          }),
           prisma.absenceReport.findMany({
             where: { userId: session!.id, periodId: period.id },
             orderBy: [{ date: "desc" }, { createdAt: "desc" }],
@@ -66,13 +72,12 @@ export default async function EmployeePage() {
             select: { id: true, date: true, kind: true, reason: true, status: true, salaryDeduction: true },
           }),
         ])
-      : [0, [], null, null, null, null, []];
+      : [0, [], null, null, null, null, null, []];
     dashboardData = {
       count,
-      wage: Math.max(
-        0,
-        (attendanceTotals?._sum.wageEarned ?? 0) - (deductionTotals?._sum.salaryDeduction ?? 0),
-      ),
+      grossWage: attendanceTotals?._sum.wageEarned ?? 0,
+      absenceDeduction: deductionTotals?._sum.salaryDeduction ?? 0,
+      loanDeduction: loanTotals?._sum.amount ?? 0,
       attendedToday: Boolean(attendedToday),
       absenceReportedToday: Boolean(absenceReportedToday),
       history: records.map((record) => ({
@@ -115,7 +120,9 @@ export default async function EmployeePage() {
           <EmployeeDashboard
             key={`${dashboardData.periodId ?? "none"}-${dashboardData.count}-${dashboardData.attendedToday}`}
             initialCount={dashboardData.count}
-            initialWage={dashboardData.wage}
+            initialGrossWage={dashboardData.grossWage}
+            initialAbsenceDeduction={dashboardData.absenceDeduction}
+            initialLoanDeduction={dashboardData.loanDeduction}
             initialAttendedToday={dashboardData.attendedToday}
             initialAbsenceReportedToday={dashboardData.absenceReportedToday}
             initialHistory={dashboardData.history}
