@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { dateFromKey } from "@/lib/dates";
 import { DAILY_WAGE, PERIOD_ATTENDANCE_LIMIT } from "@/lib/format";
 import { advancePayPeriod, getOpenPayPeriod } from "@/lib/pay-periods";
@@ -7,6 +8,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 
 type RouteContext = { params: Promise<{ id: string }> };
+const dateKeySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 async function ownerOnly() {
   const session = await getSession();
@@ -25,20 +27,30 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       select: { id: true },
     });
     if (!employee) return NextResponse.json({ error: "Karyawan tidak ditemukan." }, { status: 404 });
-    const period = await prisma.payPeriod.findFirst({
-      where: { employeeId: id, isActive: true },
-      orderBy: { startDate: "desc" },
-    });
-    const records = period
-      ? await prisma.attendance.findMany({
-          where: { userId: id, periodId: period.id },
-          orderBy: { date: "desc" },
-          select: { id: true, date: true, wageEarned: true },
-        })
-      : [];
+    const [periods, records] = await Promise.all([
+      prisma.payPeriod.findMany({
+        where: { employeeId: id },
+        orderBy: { startDate: "desc" },
+        select: { id: true, periodName: true, startDate: true, endDate: true, isActive: true },
+      }),
+      prisma.attendance.findMany({
+        where: { userId: id },
+        orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+        select: {
+          id: true,
+          periodId: true,
+          date: true,
+          wageEarned: true,
+          period: { select: { periodName: true } },
+        },
+      }),
+    ]);
     return NextResponse.json({
-      periodId: period?.id ?? null,
-      periodName: period?.periodName ?? null,
+      periods: periods.map((period) => ({
+        ...period,
+        startDate: period.startDate.toISOString(),
+        endDate: period.endDate.toISOString(),
+      })),
       records: records.map((record) => ({ ...record, date: record.date.toISOString() })),
     });
   } catch (error) {
@@ -52,15 +64,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if ("response" in auth) return auth.response;
   const { id } = await context.params;
   const body: unknown = await request.json().catch(() => null);
-  const dateKey =
-    typeof body === "object" && body !== null && "date" in body && typeof body.date === "string"
-      ? body.date
-      : "";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+  const parsed = z.object({
+    date: dateKeySchema,
+    periodId: z.string().min(1).optional(),
+  }).safeParse(body);
+  if (!parsed.success) {
     return NextResponse.json({ error: "Tanggal absensi tidak valid." }, { status: 400 });
   }
-  const date = dateFromKey(dateKey);
-  if (date.toISOString().slice(0, 10) !== dateKey) {
+  const date = dateFromKey(parsed.data.date);
+  if (date.toISOString().slice(0, 10) !== parsed.data.date) {
     return NextResponse.json({ error: "Tanggal absensi tidak valid." }, { status: 400 });
   }
 
@@ -69,11 +81,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
       async (tx) => {
         const employee = await tx.user.findFirst({ where: { id, role: "EMPLOYEE" }, select: { id: true } });
         if (!employee) throw new Error("EMPLOYEE_NOT_FOUND");
-        const { period, attendanceCount } = await getOpenPayPeriod(tx, id);
+        const period = parsed.data.periodId
+          ? await tx.payPeriod.findFirst({
+              where: { id: parsed.data.periodId, employeeId: id },
+            })
+          : (await getOpenPayPeriod(tx, id)).period;
+        if (!period) throw new Error("PERIOD_NOT_FOUND");
         const absence = await tx.absenceReport.findFirst({
           where: {
             userId: id,
             date,
+            status: { in: ["PENDING", "APPROVED"] },
           },
           select: { id: true },
         });
@@ -83,9 +101,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
           data: { userId: id, periodId: period.id, date, wageEarned: DAILY_WAGE },
           select: { id: true, date: true, wageEarned: true },
         });
-        const count = attendanceCount + 1;
+        const attendanceCount = await tx.attendance.count({
+          where: { userId: id, periodId: period.id },
+        });
         let nextPeriod = null;
-        if (count === PERIOD_ATTENDANCE_LIMIT) {
+        if (period.isActive && attendanceCount === PERIOD_ATTENDANCE_LIMIT) {
           const lastAttendance = await tx.attendance.findFirst({
             where: { userId: id, periodId: period.id },
             orderBy: [{ date: "desc" }, { createdAt: "desc" }],
@@ -105,6 +125,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
   } catch (error) {
     if (error instanceof Error && error.message === "EMPLOYEE_NOT_FOUND") {
       return NextResponse.json({ error: "Karyawan tidak ditemukan." }, { status: 404 });
+    }
+    if (error instanceof Error && error.message === "PERIOD_NOT_FOUND") {
+      return NextResponse.json({ error: "Siklus karyawan tidak ditemukan." }, { status: 404 });
     }
     if (error instanceof Error && error.message === "ABSENCE_ALREADY_REPORTED") {
       return NextResponse.json(
@@ -146,8 +169,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
         if (!employee) return { notFound: true as const };
 
         const period = await tx.payPeriod.findFirst({
-          where: { id: periodId, employeeId: id, isActive: true },
-          orderBy: { startDate: "desc" },
+          where: { id: periodId, employeeId: id },
           select: { id: true },
         });
         if (!period) return { periodChanged: true as const };

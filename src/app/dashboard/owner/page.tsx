@@ -14,8 +14,11 @@ export default async function OwnerPage() {
     | {
         employees: EmployeeRow[];
         activeCycleCount: number;
+        absencePeriods: { id: string; employeeId: string; periodName: string; isActive: boolean }[];
         absenceReports: {
           id: string;
+          userId: string;
+          periodId: string;
           date: string;
           kind: "LEAVE" | "EXPLANATION";
           reason: string;
@@ -23,6 +26,7 @@ export default async function OwnerPage() {
           salaryDeduction: number;
           employeeName: string;
           username: string;
+          periodName: string;
         }[];
         presentToday: number;
         totalWage: number;
@@ -47,6 +51,13 @@ export default async function OwnerPage() {
       ? await prisma.payPeriod.findMany({
           where: { employeeId: { in: users.map((user) => user.id) }, isActive: true },
           select: { id: true },
+        })
+      : [];
+    const absencePeriods = users.length
+      ? await prisma.payPeriod.findMany({
+          where: { employeeId: { in: users.map((user) => user.id) } },
+          orderBy: { startDate: "desc" },
+          select: { id: true, employeeId: true, periodName: true, isActive: true },
         })
       : [];
     const periodIds = periods.map((period) => period.id);
@@ -87,7 +98,10 @@ export default async function OwnerPage() {
         reason: true,
         status: true,
         salaryDeduction: true,
+        userId: true,
+        periodId: true,
         user: { select: { name: true, username: true } },
+        period: { select: { periodName: true } },
       },
     });
     const byUser = new Map(
@@ -112,8 +126,11 @@ export default async function OwnerPage() {
     data = {
       employees,
       activeCycleCount: periods.length,
+      absencePeriods,
       absenceReports: absenceReports.map((report) => ({
         id: report.id,
+        userId: report.userId,
+        periodId: report.periodId,
         date: report.date.toISOString(),
         kind: report.kind,
         reason: report.reason,
@@ -121,6 +138,7 @@ export default async function OwnerPage() {
         salaryDeduction: report.salaryDeduction,
         employeeName: report.user.name,
         username: report.user.username,
+        periodName: report.period.periodName,
       })),
       presentToday: new Set(presentToday.map((item) => item.userId)).size,
       totalWage: employees.reduce((sum, employee) => sum + employee.wageTotal, 0),
@@ -168,6 +186,7 @@ export default async function OwnerPage() {
               initialEmployees={data.employees}
               initialActiveCycleCount={data.activeCycleCount}
               initialAbsenceReports={data.absenceReports}
+              initialAbsencePeriods={data.absencePeriods}
               initialTotalWage={data.totalWage}
               initialPresentToday={data.presentToday}
               realtimeUrl={process.env.NEON_REALTIME_URL ?? null}

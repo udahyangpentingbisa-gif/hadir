@@ -33,6 +33,7 @@ export async function POST() {
           where: {
             userId: session.id,
             date,
+            status: { in: ["PENDING", "APPROVED"] },
           },
           select: { id: true },
         });

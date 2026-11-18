@@ -59,7 +59,7 @@ export function LoginForm() {
         <span className="relative block">
           <input
             required
-            minLength={6}
+            minLength={1}
             name="password"
             type={showPassword ? "text" : "password"}
             autoComplete="current-password"

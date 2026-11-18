@@ -13,12 +13,15 @@ export default async function OwnerLoansPage() {
   if (session.role !== "OWNER") redirect("/dashboard/employee");
 
   let loans: OwnerLoanRow[] = [];
+  let periodOptions: { id: string; employeeId: string; periodName: string; isActive: boolean }[] = [];
   let loadError = false;
   try {
     const records = await prisma.loan.findMany({
       orderBy: { createdAt: "desc" },
       select: {
         id: true,
+        userId: true,
+        periodId: true,
         amount: true,
         status: true,
         createdAt: true,
@@ -29,6 +32,8 @@ export default async function OwnerLoansPage() {
     });
     loans = records.map((loan) => ({
       id: loan.id,
+      userId: loan.userId,
+      periodId: loan.periodId,
       amount: loan.amount,
       status: loan.status,
       createdAt: loan.createdAt.toISOString(),
@@ -37,6 +42,11 @@ export default async function OwnerLoansPage() {
       username: loan.user.username,
       periodName: loan.period.periodName,
     }));
+    periodOptions = await prisma.payPeriod.findMany({
+      where: { employeeId: { in: records.map((loan) => loan.userId) } },
+      orderBy: { startDate: "desc" },
+      select: { id: true, employeeId: true, periodName: true, isActive: true },
+    });
   } catch (error) {
     console.error("Gagal memuat daftar pinjaman owner:", error);
     loadError = true;
@@ -55,7 +65,7 @@ export default async function OwnerLoansPage() {
             </div>
           </div>
         ) : (
-          <OwnerLoans initialLoans={loans} />
+          <OwnerLoans initialLoans={loans} periodOptions={periodOptions ?? []} />
         )}
       </main>
     </div>

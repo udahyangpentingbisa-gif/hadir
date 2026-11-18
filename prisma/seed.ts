@@ -5,7 +5,10 @@ import { getActivePayPeriod } from "../src/lib/pay-periods";
 const prisma = new PrismaClient();
 
 async function main() {
-  const initialPassword = process.env.ADMIN_INITIAL_PASSWORD || "admin123";
+  const initialPassword = process.env.ADMIN_INITIAL_PASSWORD;
+  if (!initialPassword || initialPassword.length < 8 || initialPassword.length > 128) {
+    throw new Error("ADMIN_INITIAL_PASSWORD wajib diisi 8 hingga 128 karakter sebelum menjalankan seed.");
+  }
   const password = await hash(initialPassword, 12);
 
   await prisma.user.upsert({

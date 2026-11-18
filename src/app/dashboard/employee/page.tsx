@@ -49,8 +49,12 @@ export default async function EmployeePage() {
             where: { userId_date: { userId: session!.id, date: today } },
             select: { id: true },
           }),
-          prisma.absenceReport.findUnique({
-            where: { userId_date: { userId: session!.id, date: today } },
+          prisma.absenceReport.findFirst({
+            where: {
+              userId: session!.id,
+              date: today,
+              status: { in: ["PENDING", "APPROVED"] },
+            },
             select: { id: true },
           }),
           prisma.attendance.aggregate({

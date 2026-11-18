@@ -15,6 +15,7 @@ export function AppHeader({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
   const [passwordDialog, setPasswordDialog] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordError, setPasswordError] = useState("");
@@ -22,10 +23,14 @@ export function AppHeader({
 
   async function logout() {
     setLoading(true);
+    setLogoutError("");
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (!response.ok) throw new Error("Logout request failed.");
       router.replace("/login");
       router.refresh();
+    } catch {
+      setLogoutError("Tidak dapat keluar. Periksa koneksi lalu coba lagi.");
     } finally {
       setLoading(false);
     }
@@ -105,6 +110,7 @@ export function AppHeader({
           </button>
         </div>
       </div>
+      {logoutError && <p role="alert" className="mx-auto max-w-7xl px-4 pb-3 text-right text-sm text-red-700 sm:px-8">{logoutError}</p>}
       {passwordDialog && role === "OWNER" && (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"

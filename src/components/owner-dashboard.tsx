@@ -21,9 +21,19 @@ export type EmployeeRow = {
   wageTotal: number;
 };
 
-type AttendanceRow = { id: string; date: string; wageEarned: number };
+type PayPeriodRow = { id: string; periodName: string; startDate: string; endDate: string; isActive: boolean };
+type AbsencePeriodOption = { id: string; employeeId: string; periodName: string; isActive: boolean };
+type AttendanceRow = {
+  id: string;
+  periodId: string;
+  date: string;
+  wageEarned: number;
+  period: { periodName: string };
+};
 type AbsenceReportRow = {
   id: string;
+  userId: string;
+  periodId: string;
   date: string;
   kind: "LEAVE" | "EXPLANATION";
   reason: string;
@@ -31,6 +41,7 @@ type AbsenceReportRow = {
   salaryDeduction: number;
   employeeName: string;
   username: string;
+  periodName: string;
 };
 type LiveEmployeeRow = EmployeeRow & { attendedToday: boolean };
 type NeonServiceStatus = {
@@ -43,6 +54,7 @@ export function OwnerDashboard({
   initialEmployees,
   initialActiveCycleCount,
   initialAbsenceReports,
+  initialAbsencePeriods,
   initialTotalWage,
   initialPresentToday,
   realtimeUrl,
@@ -50,6 +62,7 @@ export function OwnerDashboard({
   initialEmployees: EmployeeRow[];
   initialActiveCycleCount: number;
   initialAbsenceReports: AbsenceReportRow[];
+  initialAbsencePeriods: AbsencePeriodOption[];
   initialTotalWage: number;
   initialPresentToday: number;
   realtimeUrl: string | null;
@@ -58,12 +71,17 @@ export function OwnerDashboard({
   const [employees, setEmployees] = useState(initialEmployees);
   const [activeCycleCount, setActiveCycleCount] = useState(initialActiveCycleCount);
   const [absenceReports, setAbsenceReports] = useState(initialAbsenceReports);
+  const [absencePeriods, setAbsencePeriods] = useState(initialAbsencePeriods);
+  const [editingAbsence, setEditingAbsence] = useState<AbsenceReportRow | null>(null);
   const [totalWage, setTotalWage] = useState(initialTotalWage);
   const [modal, setModal] = useState<"add" | "edit" | "detail" | null>(null);
   const [selected, setSelected] = useState<EmployeeRow | null>(null);
   const [attendanceRows, setAttendanceRows] = useState<AttendanceRow[]>([]);
+  const [periods, setPeriods] = useState<PayPeriodRow[]>([]);
   const [activePeriodId, setActivePeriodId] = useState<string | null>(null);
   const [attendanceDate, setAttendanceDate] = useState("");
+  const [editingAttendanceId, setEditingAttendanceId] = useState<string | null>(null);
+  const [attendanceEdit, setAttendanceEdit] = useState({ date: "", periodId: "", wageEarned: "" });
   const [detailLoading, setDetailLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -93,6 +111,7 @@ export function OwnerDashboard({
         setActiveCycleCount(result.activeCycleCount);
         setTotalWage(result.totalWage);
         setAbsenceReports(absenceResult.reports);
+        setAbsencePeriods(absenceResult.periods);
         router.refresh();
       } catch (caught) {
         setError(caught instanceof Error ? caught.message : "Ringkasan tidak dapat diperbarui.");
@@ -222,6 +241,7 @@ export function OwnerDashboard({
     setActiveCycleCount(result.activeCycleCount);
     setTotalWage(result.totalWage);
     setAbsenceReports(absenceResult.reports);
+    setAbsencePeriods(absenceResult.periods);
     router.refresh();
   }
 
@@ -313,16 +333,64 @@ export function OwnerDashboard({
     }
   }
 
+  async function saveAbsence(report: AbsenceReportRow) {
+    if (!editingAbsence) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/owner/absences/${report.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: editingAbsence.date.slice(0, 10),
+          kind: editingAbsence.kind,
+          reason: editingAbsence.reason,
+          status: editingAbsence.status,
+          salaryDeduction: editingAbsence.salaryDeduction,
+          periodId: editingAbsence.periodId,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Laporan gagal diperbarui.");
+      setEditingAbsence(null);
+      setNotice("Laporan diperbarui dan gaji siklus terkait dihitung ulang.");
+      await refreshData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Laporan gagal diperbarui.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteAbsence(report: AbsenceReportRow) {
+    if (!window.confirm(`Hapus laporan ${report.employeeName} tanggal ${formatDate(report.date)}? Gaji siklus terkait akan dihitung ulang.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/owner/absences/${report.id}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Laporan gagal dihapus.");
+      setNotice("Laporan dihapus dan gaji siklus terkait dihitung ulang.");
+      await refreshData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Laporan gagal dihapus.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function openEdit(employee: EmployeeRow) {
     setSelected(employee);
     setModal("edit");
     setError("");
   }
 
-  async function openDetails(employee: EmployeeRow) {
+  async function openDetails(employee: EmployeeRow, preferredPeriodId?: string) {
     setSelected(employee);
     setAttendanceRows([]);
+    setPeriods([]);
     setActivePeriodId(null);
+    setEditingAttendanceId(null);
     setModal("detail");
     setError("");
     setDetailLoading(true);
@@ -330,7 +398,13 @@ export function OwnerDashboard({
       const response = await fetch(`/api/owner/employees/${employee.id}/attendances`, { cache: "no-store" });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Detail absensi gagal dimuat.");
-      setActivePeriodId(result.periodId);
+      setPeriods(result.periods);
+      setActivePeriodId(
+        result.periods.find((period: PayPeriodRow) => period.id === preferredPeriodId)?.id ??
+          result.periods.find((period: PayPeriodRow) => period.isActive)?.id ??
+          result.periods[0]?.id ??
+          null,
+      );
       setAttendanceRows(result.records);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Detail absensi gagal dimuat.");
@@ -341,19 +415,23 @@ export function OwnerDashboard({
 
   async function addAttendance() {
     if (!selected || !attendanceDate) return;
+    const targetPeriodId = activePeriodId;
     setBusy(true);
     setError("");
     try {
       const response = await fetch(`/api/owner/employees/${selected.id}/attendances`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: attendanceDate }),
+        body: JSON.stringify({
+          date: attendanceDate,
+          ...(activePeriodId ? { periodId: activePeriodId } : {}),
+        }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Koreksi absensi gagal.");
       setAttendanceDate("");
       setNotice("Absensi koreksi berhasil ditambahkan.");
-      await openDetails(selected);
+      await openDetails(selected, targetPeriodId ?? undefined);
       await refreshData();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Koreksi absensi gagal.");
@@ -371,10 +449,38 @@ export function OwnerDashboard({
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Absensi gagal dihapus.");
       setNotice("Catatan absensi dihapus; total gaji dihitung ulang.");
-      await openDetails(selected);
+      await openDetails(selected, record.periodId);
       await refreshData();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Absensi gagal dihapus.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updateAttendance(record: AttendanceRow) {
+    if (!selected) return;
+    const targetPeriodId = attendanceEdit.periodId;
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/owner/employees/${selected.id}/attendances/${record.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          date: attendanceEdit.date,
+          periodId: attendanceEdit.periodId,
+          wageEarned: Number(attendanceEdit.wageEarned),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Absensi gagal diperbarui.");
+      setEditingAttendanceId(null);
+      setNotice("Absensi dan gaji siklus terkait berhasil diperbarui.");
+      await openDetails(selected, targetPeriodId);
+      await refreshData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Absensi gagal diperbarui.");
     } finally {
       setBusy(false);
     }
@@ -384,9 +490,9 @@ export function OwnerDashboard({
     if (
       !selected ||
       !activePeriodId ||
-      attendanceRows.length === 0 ||
+      selectedAttendanceRows.length === 0 ||
       !window.confirm(
-        `Hapus semua ${attendanceRows.length} catatan absensi pada siklus aktif ${selected.name}? Siklus sebelumnya tidak terpengaruh dan gaji siklus aktif dihitung ulang.`,
+        `Hapus semua ${selectedAttendanceRows.length} catatan absensi pada ${selectedPeriod?.periodName ?? "siklus terpilih"} untuk ${selected.name}? Gaji akan dihitung ulang.`,
       )
     ) {
       return;
@@ -406,10 +512,10 @@ export function OwnerDashboard({
       }
       setNotice(
         result.deletedCount === 0
-          ? "Tidak ada catatan absensi di siklus aktif."
-          : `${result.deletedCount} catatan absensi siklus aktif dihapus; gaji dihitung ulang.`,
+          ? "Tidak ada catatan absensi di siklus terpilih."
+          : `${result.deletedCount} catatan absensi siklus terpilih dihapus; gaji dihitung ulang.`,
       );
-      await openDetails(selected);
+      await openDetails(selected, activePeriodId);
       await refreshData();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Catatan absensi gagal dihapus.");
@@ -417,6 +523,9 @@ export function OwnerDashboard({
       setBusy(false);
     }
   }
+
+  const selectedAttendanceRows = attendanceRows.filter((record) => record.periodId === activePeriodId);
+  const selectedPeriod = periods.find((period) => period.id === activePeriodId);
 
   return (
     <>
@@ -489,15 +598,26 @@ export function OwnerDashboard({
         <div className="divide-y divide-[#edf1ed]">
           {absenceReports.map((report) => (
             <div key={report.id} className="flex flex-col justify-between gap-4 px-5 py-4 sm:flex-row sm:items-center sm:px-6">
-              <div>
+              {editingAbsence?.id === report.id ? (
+                <div className="grid flex-1 gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-medium">Tanggal<input type="date" value={editingAbsence.date.slice(0, 10)} onChange={(event) => setEditingAbsence({ ...editingAbsence, date: event.target.value })} className="mt-1 h-9 w-full rounded-lg border border-[#e1e8e2] px-2 text-sm" /></label>
+                  <label className="text-xs font-medium">Jenis<select value={editingAbsence.kind} onChange={(event) => setEditingAbsence({ ...editingAbsence, kind: event.target.value as AbsenceReportRow["kind"] })} className="mt-1 h-9 w-full rounded-lg border border-[#e1e8e2] bg-white px-2 text-sm"><option value="LEAVE">Cuti/off</option><option value="EXPLANATION">Potong gaji</option></select></label>
+                  <label className="text-xs font-medium">Siklus gaji<select value={editingAbsence.periodId} onChange={(event) => setEditingAbsence({ ...editingAbsence, periodId: event.target.value })} className="mt-1 h-9 w-full rounded-lg border border-[#e1e8e2] bg-white px-2 text-sm">{absencePeriods.filter((period) => period.employeeId === report.userId).map((period) => <option key={period.id} value={period.id}>{period.periodName}{period.isActive ? " (aktif)" : ""}</option>)}</select></label>
+                  <label className="text-xs font-medium">Status<select value={editingAbsence.status} onChange={(event) => { const status = event.target.value as AbsenceReportRow["status"]; setEditingAbsence({ ...editingAbsence, status, salaryDeduction: status === "REJECTED" ? 0 : editingAbsence.salaryDeduction }); }} className="mt-1 h-9 w-full rounded-lg border border-[#e1e8e2] bg-white px-2 text-sm"><option value="PENDING">Menunggu</option><option value="APPROVED">Disetujui</option><option value="REJECTED">Ditolak</option></select></label>
+                  <label className="text-xs font-medium">Potongan gaji<input type="number" min="0" step="1" disabled={editingAbsence.status === "REJECTED"} value={editingAbsence.salaryDeduction} onChange={(event) => setEditingAbsence({ ...editingAbsence, salaryDeduction: Number(event.target.value) })} className="mt-1 h-9 w-full rounded-lg border border-[#e1e8e2] px-2 text-sm disabled:bg-[#f3f5f3]" /></label>
+                  <label className="text-xs font-medium sm:col-span-2">Alasan<textarea value={editingAbsence.reason} onChange={(event) => setEditingAbsence({ ...editingAbsence, reason: event.target.value })} className="mt-1 min-h-20 w-full rounded-lg border border-[#e1e8e2] px-2 py-1.5 text-sm" /></label>
+                  <div className="flex justify-end gap-2 sm:col-span-2"><button type="button" disabled={busy} onClick={() => setEditingAbsence(null)} className="h-9 rounded-lg border border-[#e1e8e2] px-3 text-xs font-semibold">Batal</button><button type="button" disabled={busy || editingAbsence.reason.trim().length < 5} onClick={() => void saveAbsence(report)} className="h-9 rounded-lg bg-[#15734c] px-3 text-xs font-semibold text-white disabled:opacity-50">Simpan</button></div>
+                </div>
+              ) : <div className="flex-1">
                 <p className="text-sm font-semibold">{report.employeeName} <span className="font-normal text-[#89958d]">@{report.username}</span></p>
                 <p className="mt-1 text-xs text-[#718078]">{report.kind === "LEAVE" ? "Cuti/off (tidak dibayar)" : "Cuti tak berbayar / potong gaji"} · {formatDate(report.date)}</p>
+                <p className="mt-1 text-xs text-[#89958d]">{report.periodName}</p>
                 <p className="mt-2 text-sm text-[#536258]">{report.reason}</p>
                 {report.salaryDeduction > 0 && (
                   <p className="mt-1 text-xs font-medium text-red-700">Potongan gaji: {currency(report.salaryDeduction)}</p>
                 )}
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
+              </div>}
+              {editingAbsence?.id !== report.id && <div className="flex shrink-0 items-center gap-2">
                 <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                   report.status === "APPROVED"
                     ? "bg-[#eaf5ee] text-[#15734c]"
@@ -513,7 +633,9 @@ export function OwnerDashboard({
                     <button onClick={() => void reviewAbsence(report, "REJECTED")} disabled={busy} className="h-9 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 disabled:opacity-50">Tolak</button>
                   </>
                 )}
-              </div>
+                <button type="button" disabled={busy} onClick={() => setEditingAbsence({ ...report })} className="h-9 rounded-lg border border-[#dce6de] px-3 text-xs font-semibold text-[#31443a] disabled:opacity-50">Edit</button>
+                <button type="button" disabled={busy} onClick={() => void deleteAbsence(report)} className="h-9 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 disabled:opacity-50">Hapus</button>
+              </div>}
             </div>
           ))}
           {absenceReports.length === 0 && <p className="px-6 py-10 text-center text-sm text-[#89958d]">Belum ada laporan cuti atau potong gaji.</p>}
@@ -554,15 +676,16 @@ export function OwnerDashboard({
             {modal === "detail" ? (
               <div className="mt-6">
                 <div className="flex items-end gap-2">
-                  <label className="min-w-0 flex-1"><span className="mb-1.5 block text-sm font-medium">Tambah/koreksi kehadiran</span><input type="date" value={attendanceDate} onChange={(event) => setAttendanceDate(event.target.value)} className="h-11 w-full rounded-xl border border-[#e1e8e2] px-3 text-sm outline-none focus:border-[#15734c]" /></label>
+                  <label className="min-w-0 flex-1"><span className="mb-1.5 block text-sm font-medium">Tanggal absensi</span><input type="date" value={attendanceDate} onChange={(event) => setAttendanceDate(event.target.value)} className="h-11 w-full rounded-xl border border-[#e1e8e2] px-3 text-sm outline-none focus:border-[#15734c]" /></label>
+                  <label className="min-w-0 flex-1"><span className="mb-1.5 block text-sm font-medium">Siklus tujuan</span><select value={activePeriodId ?? ""} onChange={(event) => setActivePeriodId(event.target.value || null)} className="h-11 w-full rounded-xl border border-[#e1e8e2] bg-white px-3 text-sm"><option value="">Siklus baru</option>{periods.map((period) => <option key={period.id} value={period.id}>{period.periodName}{period.isActive ? " (aktif)" : ""}</option>)}</select></label>
                   <button type="button" onClick={() => void addAttendance()} disabled={busy || !attendanceDate} className="h-11 rounded-xl bg-[#15734c] px-4 text-sm font-semibold text-white disabled:opacity-50">Tambah</button>
                 </div>
-                <p className="mt-2 text-xs text-[#89958d]">Tanggal lampau, hari ini, atau mendatang dapat dicatat owner. Tiap karyawan memiliki siklus sendiri; absensi memberi gaji Rp 50.000 dan siklus berganti setelah 15 kehadiran.</p>
+                <p className="mt-2 text-xs text-[#89958d]">Pilih siklus untuk mencatat absensi tanggal lampau, hari ini, atau mendatang. Perubahan gaji dihitung ulang pada siklus yang dipilih.</p>
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-xs text-[#89958d]">{attendanceRows.length} catatan di siklus aktif</p>
+                  <p className="text-xs text-[#89958d]">{selectedAttendanceRows.length} catatan · {selectedPeriod?.periodName ?? "tidak ada siklus"}</p>
                   <button
                     type="button"
-                    disabled={busy || detailLoading || attendanceRows.length === 0}
+                    disabled={busy || detailLoading || selectedAttendanceRows.length === 0}
                     onClick={() => void removeAllActiveAttendance()}
                     className="inline-flex h-9 items-center gap-2 rounded-lg border border-red-200 px-3 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
                   >
@@ -571,12 +694,27 @@ export function OwnerDashboard({
                 </div>
                 {(error || notice) && <p role={error ? "alert" : "status"} className={`mt-3 text-sm ${error ? "text-red-700" : "text-[#15734c]"}`}>{error || notice}</p>}
                 <div className="mt-5 max-h-64 divide-y divide-[#edf1ed] overflow-y-auto rounded-xl border border-[#edf1ed]">
-                  {detailLoading ? <p className="p-5 text-center text-sm text-[#718078]">Memuat riwayat...</p> : attendanceRows.length ? attendanceRows.map((record) => (
+                  {detailLoading ? <p className="p-5 text-center text-sm text-[#718078]">Memuat riwayat...</p> : selectedAttendanceRows.length ? selectedAttendanceRows.map((record) => (
                     <div key={record.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                      <div><p className="text-sm font-medium">{formatDate(record.date)}</p><p className="mt-1 text-xs text-[#89958d]">{currency(record.wageEarned)}</p></div>
-                      <button type="button" disabled={busy} onClick={() => void removeAttendance(record)} className="rounded-lg px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">Hapus ini saja</button>
+                      {editingAttendanceId === record.id ? (
+                        <div className="grid flex-1 gap-2 sm:grid-cols-[1fr_1.2fr_1fr_auto_auto]">
+                          <input aria-label="Tanggal absensi" type="date" value={attendanceEdit.date} onChange={(event) => setAttendanceEdit({ ...attendanceEdit, date: event.target.value })} className="h-9 min-w-0 rounded-lg border border-[#e1e8e2] px-2 text-xs" />
+                          <select aria-label="Siklus absensi" value={attendanceEdit.periodId} onChange={(event) => setAttendanceEdit({ ...attendanceEdit, periodId: event.target.value })} className="h-9 min-w-0 rounded-lg border border-[#e1e8e2] bg-white px-2 text-xs">{periods.map((period) => <option key={period.id} value={period.id}>{period.periodName}{period.isActive ? " (aktif)" : ""}</option>)}</select>
+                          <input aria-label="Nominal gaji absensi" type="number" min="0" step="1" value={attendanceEdit.wageEarned} onChange={(event) => setAttendanceEdit({ ...attendanceEdit, wageEarned: event.target.value })} className="h-9 min-w-0 rounded-lg border border-[#e1e8e2] px-2 text-xs" />
+                          <button type="button" disabled={busy} onClick={() => void updateAttendance(record)} className="rounded-lg bg-[#15734c] px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">Simpan</button>
+                          <button type="button" disabled={busy} onClick={() => setEditingAttendanceId(null)} className="rounded-lg px-3 py-2 text-xs font-semibold text-[#637168]">Batal</button>
+                        </div>
+                      ) : (
+                        <>
+                          <div><p className="text-sm font-medium">{formatDate(record.date)}</p><p className="mt-1 text-xs text-[#89958d]">{record.period.periodName} · {currency(record.wageEarned)}</p></div>
+                          <div className="flex shrink-0 gap-1">
+                            <button type="button" disabled={busy} onClick={() => { setEditingAttendanceId(record.id); setAttendanceEdit({ date: record.date.slice(0, 10), periodId: record.periodId, wageEarned: String(record.wageEarned) }); }} className="rounded-lg px-3 py-2 text-xs font-semibold text-[#15734c] hover:bg-[#eff7f1] disabled:opacity-50">Edit</button>
+                            <button type="button" disabled={busy} onClick={() => void removeAttendance(record)} className="rounded-lg px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50">Hapus</button>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  )) : <p className="p-5 text-center text-sm text-[#89958d]">Belum ada absensi pada siklus aktif.</p>}
+                  )) : <p className="p-5 text-center text-sm text-[#89958d]">Belum ada absensi pada siklus ini.</p>}
                 </div>
               </div>
             ) : (
